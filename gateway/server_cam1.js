@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 
 // Setup automatic file logger
-const logFile = path.join(__dirname, 'gateway_cam2.log');
+const logFile = path.join(__dirname, 'gateway_cam1.log');
 fs.writeFileSync(logFile, ''); // clear log on start
 const originalLog = console.log;
 const originalWarn = console.warn;
@@ -36,10 +36,10 @@ console.error = function(...args) {
 const CONFIG = {
   account: "info@enarxi.com",
   password: "Enarxi12345@",
-  deviceId: "F14504WN1000345886", // Enarxi_Cam1
-  deviceSecret: "1223093b8d7277ee7158841ae47d75a7",
-  streamUrl: "rtsp://168.144.84.199:8554/live/devcamera2_hd",
-  wsPort: 8080
+  deviceId: "367ABDWN1000346168",            // Enarxi_Cam1
+  deviceSecret: "08ce8ae8a9e468d2313c03c9e058a3c2",
+  streamUrl: "rtsp://168.144.84.199:8554/live/devcamera1_hd",
+  wsPort: 8081   // different port from Camera 2 (8080)
 };
 
 // Locate sdk_dist directory
@@ -49,47 +49,32 @@ if (!fs.existsSync(sdkPath)) {
 }
 console.log(`[Gateway] Serving SDK static files from: ${sdkPath}`);
 
-// Locate dashboard directory
-const dashboardPath = path.join(__dirname, '..', 'dashboard');
-
-function serveFile(filePath, res) {
+// Start HTTP Server to serve SDK static files
+const sdkHttpServer = http.createServer((req, res) => {
+  const urlPath = req.url.split('?')[0];
+  let filePath = path.join(sdkPath, urlPath === '/' ? 'index.html' : urlPath);
+  
   fs.readFile(filePath, (err, content) => {
     if (err) {
       res.writeHead(404, { 'Content-Type': 'text/plain' });
       res.end('404 Not Found');
       return;
     }
+    
     let contentType = 'text/html';
     const ext = path.extname(filePath);
-    if (ext === '.js')   contentType = 'application/javascript';
-    else if (ext === '.css')  contentType = 'text/css';
+    if (ext === '.js') contentType = 'application/javascript';
+    else if (ext === '.css') contentType = 'text/css';
     else if (ext === '.wasm') contentType = 'application/wasm';
     else if (ext === '.json') contentType = 'application/json';
-    res.writeHead(200, { 'Content-Type': contentType, 'Access-Control-Allow-Origin': '*' });
+    
+    res.writeHead(200, { 'Content-Type': contentType });
     res.end(content);
   });
-}
-
-// SDK HTTP Server (port 8000) — serves SDK WASM/HTML for Puppeteer
-const sdkHttpServer = http.createServer((req, res) => {
-  const urlPath = req.url.split('?')[0];
-  const filePath = path.join(sdkPath, urlPath === '/' ? 'index.html' : urlPath);
-  serveFile(filePath, res);
 });
 
-sdkHttpServer.listen(8000, () => {
-  console.log('[Gateway] SDK HTTP server on port 8000 (for Puppeteer)');
-});
-
-// Dashboard HTTP Server (port 9000) — serves the live camera dashboard UI
-const dashboardHttpServer = http.createServer((req, res) => {
-  const urlPath = req.url.split('?')[0];
-  const filePath = path.join(dashboardPath, urlPath === '/' ? 'index.html' : urlPath);
-  serveFile(filePath, res);
-});
-
-dashboardHttpServer.listen(9000, () => {
-  console.log('[Gateway] Dashboard available at → http://localhost:9000/');
+sdkHttpServer.listen(8001, () => {
+  console.log('[Gateway-Cam1] Local HTTP SDK server listening on port 8001');
 });
 
 // Start WebSocket Server
@@ -320,8 +305,8 @@ async function launchAutomation() {
   });
 
   // Navigate to local SDK site
-  console.log('[Gateway] Navigating to H5 SDK portal http://localhost:8000/ ...');
-  await page.goto('http://localhost:8000/', { waitUntil: 'networkidle2' });
+  console.log('[Gateway-Cam1] Navigating to H5 SDK portal http://localhost:8001/ ...');
+  await page.goto('http://localhost:8001/', { waitUntil: 'networkidle2' });
 
   // Automate Login and Connection
   await runLoginSequence(page);

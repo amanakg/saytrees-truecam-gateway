@@ -1,0 +1,549 @@
+<!doctype html>
+<html>
+
+<head>
+  <link rel="icon" href="data:image/ico;base64,aWNv">
+  <link rel="stylesheet" href="./index.css" />
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+  <meta name="description" content="version: 2.0.1">
+  <!-- Related to mqtt -->
+  <script src="./mqtt/mqtt.min.js"></script>
+  <script src="./mqtt/mqtt.js"></script>
+  <script src="./mqtt/mqttAction.js"></script>
+  <!-- Related to decode -->
+  <script src="./decoder_def.js"></script>
+  <script src="./hevcdec.js"></script>
+  <script src="./glutils.js"></script>
+  <!-- <script src="./jadecoder.js"></script> -->
+  <!-- <script src="./nalu2mp4.js"></script>  -->
+  <!-- Third-party library -->
+  <script src="./js/md5.js"></script>
+  <script src="./js/jquery.min.js"></script>
+  <script src="./js/jquery.i18n.js"></script>
+  <script src="./js/language.js"></script>
+  <script src="./js/axios.js"></script>
+  <script src="./js/md5fun.js"></script>
+  <script src="./js/uuid.js"></script>
+  <script src="./jessibuca-pro.js"></script>
+<script defer src="connector.js"></script></head>
+
+<body>
+  <div id="loginDiv">
+    <span>account:</span>
+    <input type="text" name="account" id="login-account" value="">
+    <span>password:</span>
+    <input type="password" name="password" id="login-password" value="">
+    <button type="button" id="loginBtn">login</button>
+    <button type="button" onclick="getDeviceList()">getDeviceList</button>
+  </div>
+  <span class="i18n" name="deviceId">ID：</span>
+  <!-- value="productId:deviceId:deviceSecre" -->
+  <!-- <input type="text" id="dev_id" value=""> -->
+  <select id="dev_id">
+  </select>
+  <span class="i18n" name="username">：</span>
+  <input type="text" id="user" value="admin">
+  <span class="i18n" name="password">：</span>
+  <input type="text" id="pwd" value="">
+  <select id="streamtype" style="width:100px">
+    <option value=0 selected class="i18n" name="subStream"></option>
+    <option value=1 class="i18n" name="mainStream"></option>
+  </select>
+  <select id="channel" style="width:100px">
+    <option value=0 class="i18n" name="channel1">1</option>
+    <option value=1 class="i18n" name="channel2">2</option>
+    <option value=2 class="i18n" name="channel3">3</option>
+    <option value=3 class="i18n" name="channel4">4</option>
+  </select>
+  <br>
+  <!--  Preview -->
+  <span class="i18n weight" name="preview"></span>
+  <br />
+  <button onclick="connect()" style="width:100px" class="i18n" name="connectDeviceByID">（ID）</button>
+  <button onclick="disconnect()" style="width:100px" class="i18n" name="disconnect"></button>
+  <button onclick="openvideo()" style="width:100px" class="i18n" name="openStream"></button>
+  <button onclick="changestream()" style="width:110px" class="i18n" name="switchStream"></button>
+  <button onclick="closevideo()" style="width:100px" class="i18n" name="closeStream"></button>
+  <button onclick="snapshot()" style="width:100px" class="i18n" name="screenshot"></button>
+  <button onclick="openaudio()" style="width:100px" class="i18n" name="openAudio"></button>
+  <button onclick="closeaudio()" style="width:100px" class="i18n" name="closeAudio"></button>
+  <br />
+  <span class="i18n" name="currentDecodingMode" style="margin-right: 5px;"></span><span id="currentDecodingMode"></span>
+  <br />
+  <!-- <span class="i18n" name="main_property"></span>
+	<span class="i18n" name="resolution"></span>
+	<select id="mainResolution" style="min-width: 50px"></select>
+
+	<span class="i18n" name="sub_property"> </span>
+	<span class="i18n" name="resolution"></span>
+	<select id="subResolution" style="min-width: 50px"></select>
+	<button onclick="getStreamPara()" class="i18n" name="get_stream_para"></button>
+	<button onclick="setStreamPara()" class="i18n" name="set_stream_para"></button>
+	<br /> -->
+	<button onclick="startRecord()" class="i18n" name="startRecording" style="width:100px"></button>
+	<button onclick="endRecord()" class="i18n" name="stopRecording" style="width:100px"></button>
+	<br />
+	<input type="checkbox" id="flipEnabled"><span class="i18n" name="imageFlipUpAndDown" ></span>  
+  <input type="checkbox" id="mirrorEnabled"><span class="i18n" name="imageFlipLeftAndRight"></span>
+	<button onclick="getFlipStatus()" class="i18n" name="get" style="width:100px"></button>
+	<button onclick="setFlipStatus()" class="i18n" name="Setting" style="width:100px"></button>
+    <br />
+	<br />
+  <br>
+  <br>
+  <!--  Device Properties -->
+  <div>
+    <span class="i18n weight" name="deviceProperties"></span>
+    <div id="loginDiv">
+      <button type="button" id="getObjectBtn" class="i18n" name="getDeviceObjectModel"></button>
+    </div>
+    <br />
+    <textarea id="getDeviceProperty_str" style="width: 400px;height: 200px;">
+      [{
+        "propertyName": "SmartDetect.Enabled",
+        "id": 20080
+      }]
+    </textarea>
+    <button class="i18n" name="getDeviceProperty" onclick="getDeviceProperty()"></button>
+    <br />
+    <textarea id="setDeviceProperty_str" style="width: 400px;height: 200px;">[{
+    "value": false,
+    "propertyName": "SmartDetect.Enabled",
+    "id": 20080,
+    "type": 4
+    }]
+    </textarea>
+    <button class="i18n" name="setDeviceProperty" onclick="setDeviceProperty()"></button>
+    <br />
+  </div>
+  <!-- Remote setting -->
+  <div>
+    <span class="i18n weight" name="remote_set"></span>
+    <br />
+
+    <div class="double_col">
+      <div class="col">
+        <div class="item">
+          <input type="checkbox" id="motionDetect"><span class="i18n" name="motionDetect"></span>
+          <button class="i18n" name="get" onclick="getBooleanProperty('SmartDetect.Enabled', 20080, 'motionDetect')"></button>
+          <button class="i18n" name="Setting" onclick="setBooleanProperty('SmartDetect.Enabled', 20080, 'motionDetect')"></button>
+        </div>
+
+        <div class="item">
+          <input type="checkbox" id="humanBodyDetection"><span class="i18n" name="humanBodyDetection"></span>
+          <button class="i18n" name="get" onclick="getBooleanProperty('SmartDetect.Human.Enabled', 20082, 'humanBodyDetection')"></button>
+          <button class="i18n" name="Setting" onclick="setBooleanProperty('SmartDetect.Human.Enabled', 20082, 'humanBodyDetection')"></button>
+        </div>
+
+        <div class="item">
+          <input type="checkbox" id="humanBodyDetectionFrame"><span class="i18n" name="humanBodyDetectionFrame"></span>
+          <button class="i18n" name="get" onclick="getBooleanProperty('SmartDetect.Human.DrwBox', 20184, 'humanBodyDetectionFrame')"></button>
+          <button class="i18n" name="Setting" onclick="setBooleanProperty('SmartDetect.Human.DrwBox', 20184, 'humanBodyDetectionFrame')"></button>
+        </div>
+        
+        <div class="item">
+          <input type="checkbox" id="humanTracking"><span class="i18n" name="humanTracking"></span>
+          <button class="i18n" name="get" onclick="getBooleanProperty('PTZ.EnableMT', 20138, 'humanTracking')"></button>
+          <button class="i18n" name="Setting" onclick="setBooleanProperty('PTZ.EnableMT', 20138, 'humanTracking')"></button>
+        </div>
+        
+        <div class="item">
+          <input type="checkbox" id="alarmMainSwitch"><span class="i18n" name="alarmMainSwitch"></span>
+          <button class="i18n" name="get" onclick="getBooleanProperty('Alarm.Enabled', 20168, 'alarmMainSwitch')"></button>
+          <button class="i18n" name="Setting" onclick="setBooleanProperty('Alarm.Enabled', 20168, 'alarmMainSwitch')"></button>
+        </div>
+        
+        <div class="item">
+          <input type="checkbox" id="sirenSetting"><span class="i18n" name="sirenSetting"></span>
+          <button class="i18n" name="get" onclick="getBooleanProperty('Alarm.AlarmSound.Enabled', 20038, 'sirenSetting')"></button>
+          <button class="i18n" name="Setting" onclick="setBooleanProperty('Alarm.AlarmSound.Enabled', 20038, 'sirenSetting')"></button>
+        </div>
+        
+        <div class="item">
+          <input type="checkbox" id="whiteLightAlarm"><span class="i18n" name="whiteLightAlarm"></span>
+          <button class="i18n" name="get" onclick="getBooleanProperty('Alarm.AlarmWhiteLight.Enabled', 20039, 'whiteLightAlarm')"></button>
+          <button class="i18n" name="Setting" onclick="setBooleanProperty('Alarm.AlarmWhiteLight.Enabled', 20039, 'whiteLightAlarm')"></button>
+        </div>
+
+        <div class="item">
+          <input type="checkbox" id="rtmp_status"><span class="i18n" name="rtmp_status"></span>
+          <button class="i18n" name="get" onclick="getBooleanProperty('Protocol.RTMPClinet.Enabled', 20241, 'rtmp_status')"></button>
+          <button class="i18n" name="Setting" onclick="setBooleanProperty('Protocol.RTMPClinet.Enabled', 20241, 'rtmp_status')"></button>
+        </div>
+
+        <div class="item">
+          <input type="text" id="rtmp_address"><span class="i18n" name="rtmp_address"></span>
+          <button class="i18n" name="get" onclick="getStringProperty('Protocol.RTMPClinet.Url', 20242, 'rtmp_address')"></button>
+          <button class="i18n" name="Setting" onclick="setStringProperty('Protocol.RTMPClinet.Url', 20242, 'rtmp_address')"></button>
+        </div>
+      </div>
+      <div class="col">
+        <div class="item">
+          <input type="checkbox" id="recordingMode"><span class="i18n" name="recordingMode"></span>
+          <button class="i18n" name="get" onclick="getBooleanProperty('Record.RecordTriggers.Continuous', 20186, 'recordingMode')"></button>
+          <button class="i18n" name="Setting" onclick="setBooleanProperty('Record.RecordTriggers.Continuous', 20186, 'recordingMode')"></button>
+        </div>
+        
+        <div class="item">
+          <input type="checkbox" id="recordSound"><span class="i18n" name="recordSound"></span>
+          <button class="i18n" name="get" onclick="getBooleanProperty('Audio.Input[0].Enabled', 20037, 'recordSound')"></button>
+          <button class="i18n" name="Setting" onclick="setBooleanProperty('Audio.Input[0].Enabled', 20037, 'recordSound')"></button>
+        </div>
+        
+        <div class="item">
+          <input type="checkbox" id="privacyMode"><span class="i18n" name="privacyMode"></span>
+          <button class="i18n" name="get" onclick="getBooleanProperty('System.PrivateMode.Enabled', 20188, 'privacyMode')"></button>
+          <button class="i18n" name="Setting" onclick="setBooleanProperty('System.PrivateMode.Enabled', 20188, 'privacyMode')"></button>
+        </div>
+        
+        <!-- <div class="item">
+          <input type="checkbox" id="PtzCalibration"><span class="i18n" name="PtzCalibration"></span>
+          <button class="i18n" name="get" onclick="getPTZCalibration()"></button>
+          <button class="i18n" name="Setting" onclick="setPTZCalibration()"></button>
+        </div> -->
+        
+        <div class="item">
+          <input type="checkbox" id="statusIndicator"><span class="i18n" name="statusIndicator"></span>
+          <button class="i18n" name="get" onclick="getBooleanProperty('System.LedEnable', 20185, 'statusIndicator')"></button>
+          <button class="i18n" name="Setting" onclick="setBooleanProperty('System.LedEnable', 20185, 'statusIndicator')"></button>
+        </div>
+        
+        <div class="item">
+          <input type="checkbox" id="deviceVoicePrompt"><span class="i18n" name="deviceVoicePrompt"></span>
+          <button class="i18n" name="get" onclick="getBooleanProperty('System.PromptSoundEn', 20055, 'deviceVoicePrompt')"></button>
+          <button class="i18n" name="Setting" onclick="setBooleanProperty('System.PromptSoundEn', 20055, 'deviceVoicePrompt')"></button>
+        </div>
+        
+        <div class="item">
+          <input type="checkbox" id="ONVIF"><span class="i18n" name="ONVIF"></span>
+          <button class="i18n" name="get" onclick="getBooleanProperty('Protocol.OnvifServer.Enabled', 20243, 'ONVIF')"></button>
+          <button class="i18n" name="Setting" onclick="setBooleanProperty('Protocol.OnvifServer.Enabled', 20243, 'ONVIF')"></button>
+        </div>
+        <div class="item">
+          <input type="checkbox" id="alexaServiceAuthorization"><span class="i18n" name="alexaServiceAuthorization"></span>
+          <button class="i18n" name="get" onclick="getBooleanProperty('System.Alexa', 20205, 'alexaServiceAuthorization')"></button>
+          <button class="i18n" name="Setting" onclick="setBooleanProperty('System.AlexaServiceAuth', 20205, 'alexaServiceAuthorization')"></button>
+        </div>
+        <div class="item">
+          <input type="checkbox" id="pushNotification"><span class="i18n" name="pushNotification"></span>
+          <button class="i18n" name="get" onclick="getBooleanProperty('Alarm.MsgToApp.Enabled', 20189, 'pushNotification')"></button>
+          <button class="i18n" name="Setting" onclick="setBooleanProperty('Alarm.MsgToApp.Enabled', 20189, 'pushNotification')"></button>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="item">
+          <select id="alarmSoundType"></select><span class="i18n" name="alarmSoundType"></span>
+          <button class="i18n" name="get" onclick="getPropertyWithOptions('Alarm.AlarmSound.Mode', 20207, 'alarmSoundType')"></button>
+          <button class="i18n" name="Setting" onclick="setStringProperty('Alarm.AlarmSound.Mode', 20207, 'alarmSoundType')"></button>
+        </div>
+        
+        <div class="item">
+          <select id="videoQuality"></select><span class="i18n" name="videoQuality"></span>
+          <button class="i18n" name="get" onclick="getPropertyWithOptions('Record.Stream', 20089, 'videoQuality')"></button>
+          <button class="i18n" name="Setting" onclick="setStringProperty('Record.Stream', 20089, 'videoQuality')"></button>
+        </div>
+      </div>
+      <div class="col">
+        <div class="item">
+          <select id="nightVisionMode"></select><span class="i18n" name="nightVisionMode"></span>
+          <button class="i18n" name="get" onclick="getPropertyWithOptions('LightCtl.NightMode', 20073, 'nightVisionMode')"></button>
+          <button class="i18n" name="Setting" onclick="setStringProperty('LightCtl.NightMode', 20073, 'nightVisionMode')"></button>
+        </div>
+        
+        <div class="item">
+          <select id="patrol"></select><span class="i18n" name="patrol"></span>
+          <button class="i18n" name="get" onclick="getPropertyWithOptions('PTZ.Cruise', 20172, 'patrol')"></button>
+          <button class="i18n" name="Setting" onclick="setStringProperty('PTZ.Cruise', 20172, 'patrol')"></button>
+        </div>
+      </div>
+      <div class="item">
+        <input type="number" id="alarmVolume"><span class="i18n" name="alarmVolume"></span>
+        <button class="i18n" name="get" onclick="getIntProperty('Audio.Output.AlarmVolume', 20206, 'alarmVolume')"></button>
+        <button class="i18n" name="Setting" onclick="setIntProperty('Audio.Output.AlarmVolume', 20206, 'alarmVolume', 0, 100)"></button>
+      </div>
+      
+      <div class="item">
+        <input type="number" id="deviceSoundVolume"><span class="i18n" name="deviceSoundVolume"></span>
+        <button class="i18n" name="get" onclick="getIntProperty('Audio.Output.Volume', 20045, 'deviceSoundVolume')"></button>
+        <button class="i18n" name="Setting" onclick="setIntProperty('Audio.Output.Volume', 20045, 'deviceSoundVolume', 0, 100)"></button>
+      </div>
+      
+      <!-- TO be check  -->
+      <!-- <div class="item">
+        <input type="text" id="userList"><span class="i18n" name="userList"></span>
+        <button class="i18n" name="get" onclick="getStringProperty('User.List', 20244, 'userList')"></button>
+        <button class="i18n" name="Setting" onclick="setStringProperty('User.List', 20244, 'userList')"></button>
+      </div> -->
+      
+      <div class="item">
+        <input type="number" id="timeSynchronization"><span class="i18n" name="timeSynchronization"></span>
+        <button class="i18n" name="get" onclick="getIntProperty('System.Time.TimeUtc', 20095, 'timeSynchronization')"></button>
+        <button class="i18n" name="Setting" onclick="setIntProperty('System.Time.TimeUtc', 20095, 'timeSynchronization', 0, 2147483647)"></button>
+      </div>
+      
+      <div class="item">
+        <input type="number" id="timeZoneSetting"><span class="i18n" name="timeZoneSetting"></span>
+        <button class="i18n" name="get" onclick="getIntProperty('System.Time.TimeZone', 20057, 'timeZoneSetting')"></button>
+        <button class="i18n" name="Setting" onclick="setIntProperty('System.Time.TimeZone', 20057, 'timeZoneSetting', -1200, 1200)"></button>
+      </div>
+      
+      <div class="item">
+        <input type="text" id="daylightSavingTime"><span class="i18n" name="daylightSavingTime"></span>
+        <button class="i18n" name="get" onclick="getStringProperty('System.Time.Dst', 20199, 'daylightSavingTime')"></button>
+        <button class="i18n" name="Setting" onclick="setStringProperty('System.Time.Dst', 20199, 'daylightSavingTime')"></button>
+      </div>
+      
+      <!-- TODO: -->  
+      <div class="item">
+        <span class="i18n" name="deviceName"></span><span id="deviceName"></span>
+        <button class="i18n" name="get" onclick="getStringProperty('Stat.DeviceInfo.DevName', 20026, 'deviceName')"></button>
+      </div>
+      
+      <!-- TODO: -->
+      <div class="item">
+        <span class="i18n" name="deviceSoftwareVersion"></span><span id="deviceSoftwareVersion"></span>
+        <button class="i18n" name="get" onclick="getStringProperty('Stat.DeviceInfo.DevSoftVer', 20023, 'deviceSoftwareVersion')"></button>
+      </div>
+      
+      <!-- TODO: -->
+      <div class="item">
+        <span class="i18n" name="deviceMagic"></span><span id="deviceMagic"></span>
+        <button class="i18n" name="get" onclick="getStringProperty('Stat.DeviceInfo.DevMagic', 20030, 'deviceMagic')"></button>
+      </div>
+    </div>
+      <div class="item" style="margin-top: 10px;">
+        <textarea id="motionDetectSchedule" style="width: 600px; height: 60px;"></textarea><span class="i18n" name="motionDetectSchedule"></span>
+        <button class="i18n" name="get" onclick="getStringProperty('SmartDetect.DetectSch', 20084, 'motionDetectSchedule')"></button>
+        <button class="i18n" name="Setting" onclick="setStringProperty('SmartDetect.DetectSch', 20084, 'motionDetectSchedule')"></button>
+      </div>
+
+      <div class="item" style="margin-top: 10px;">
+        <textarea id="recordingSchedule" style="width: 600px; height: 60px;"></textarea><span class="i18n" name="recordingSchedule"></span>
+        <button class="i18n" name="get" onclick="getStringProperty('Record.Sch', 20187, 'recordingSchedule')"></button>
+        <button class="i18n" name="Setting" onclick="setStringProperty('Record.Sch', 20187, 'recordingSchedule')"></button>
+      </div>
+      
+      <div class="item" style="margin-top: 10px;">
+        <textarea id="detectAreaGrid" style="width: 600px; height: 60px;"></textarea><span class="i18n" name="detectAreaGrid"></span>
+        <button class="i18n" name="get" onclick="getStringProperty('Video.Input[0].DetectArea.FixedGrid', 20178, 'detectAreaGrid')"></button>
+        <button class="i18n" name="Setting" onclick="setStringProperty('Video.Input[0].DetectArea.FixedGrid', 20178, 'detectAreaGrid')"></button>
+      </div>
+      
+      <div class="item" style="margin-top: 10px;">
+        <textarea id="notificationSchedule" style="width: 600px; height: 60px;"></textarea><span class="i18n" name="notificationSchedule"></span>
+        <button class="i18n" name="get" onclick="getStringProperty('Alarm.MsgToApp.Sch', 20192, 'notificationSchedule')"></button>
+        <button class="i18n" name="Setting" onclick="setStringProperty('Alarm.MsgToApp.Sch', 20192, 'notificationSchedule')"></button>
+      </div>
+  </div>
+
+
+
+  <!--  Device Action -->
+  <div style="margin-top: 20px;">
+    <span class="i18n weight" name="deviceAction"></span>
+    <br />
+    <button class="i18n" name="openLight" onclick="lightControl('ON')"></button>
+    <button class="i18n" name="closeLight" onclick="lightControl('OFF')"></button>
+    <button class="i18n" name="openAlarmLight" onclick="alarmLightControl('ON')"></button>
+    <button class="i18n" name="closeAlarmLight" onclick="alarmLightControl('OFF')"></button>
+  </div>
+  <!-- <span class="i18n weight" name="PTZControl"></span> -->
+  <button onmouseup="ptzControl('Stop')" onmousedown="ptzControl('MoveUp')" style="width:100px" class="i18n"
+    name="PTZUp"></button>
+  <button onmouseup="ptzControl('Stop')" onmousedown="ptzControl('MoveDown')" style="width:100px" class="i18n"
+    name="PTZDown"></button>
+  <button onmouseup="ptzControl('Stop')" onmousedown="ptzControl('MoveLeft')" style="width:100px" class="i18n"
+    name="PTZLeft"></button>
+  <button onmouseup="ptzControl('Stop')" onmousedown="ptzControl('MoveRight')" style="width:100px" class="i18n"
+    name="PTZRight"></button>
+  <button onmouseup="ptzControl('Stop')" onmousedown="ptzControl('ZoomIn')" style="width:100px" class="i18n"
+    name="PTZNearly"></button>
+  <button onmouseup="ptzControl('Stop')" onmousedown="ptzControl('ZoomOut')" style="width:100px" class="i18n"
+    name="PTZFar"></button>
+  <br />
+  <span class="i18n" name="Tfstatus"></span><span id="Tfstatus" style="margin-right: 15px;"></span>
+  <span class="i18n" name="TFtotalSize"></span><span id="TFtotalSize" style="margin-right: 15px;"></span>
+  <span class="i18n" name="TFLeaveSize"></span><span id="TFLeaveSize" style="margin-right: 15px;"></span>
+  <button class="i18n" name="getTFCardStatus" onclick="getTFCardStatus()"></button>
+  <button class="i18n" name="formatTFCard" onclick="formatTFCard()"></button>
+  <!-- <br />
+  <span class="i18n" id="AP_Info" name="AP_Info"></span>
+  <select id="AP_list" style="min-width: 50px;"></select>
+  <button class="i18n" name="getApInfo" onclick="getApInfo()"></button> -->
+  <br />
+  <textarea id="networkInfo" style="transform: translateY(9px);"></textarea>
+  <button class="i18n" name="getNetworkInfo" onclick="getNetworkInfo()"></button>
+  <br />
+  <span class="i18n weight" name="talk"></span>
+  <br />
+  <button onclick="opencall()" style="width:100px" class="i18n" name="openTalk"></button>
+  <button onclick="speakingcall()" style="width:100px" class="i18n" name="startTalk"></button>
+  <button onclick="stopspeaking()" style="width:100px" class="i18n" name="stopTalk"></button>
+  <button onclick="closecall()" style="width:100px" class="i18n" name="closeTalk"></button>
+  <br />
+  <div class="i18n weight" name="playback" style="margin-top: 15px; margin-bottom: -21px;"></div>
+  <br />
+  <span class="i18n" name="currentPlaybackTime"></span>
+  <span id="startTime"></span>
+  <span>-</span>
+  <span id="endTime"></span>
+  <br />
+  <button onclick="searchrecord(event)" style="width:100px" class="i18n" name="searchRecord"></button>
+  <button onclick="displayRecList(event)" style="margin-right:10px" class="i18n" name="displayVideoList"></button>
+  <button onclick="playbackBySpecNum(0, 0)" style="width:140px" class="i18n" name="playbackFirst"></button>
+  <button onclick="playbacknext()" style="width:140px" class="i18n" name="playbackNext"></button>
+  <button onclick="playbackprev()" style="width:140px" class="i18n" name="playbackPre"></button>
+  <button onclick="playbackpause()" style="width:140px" class="i18n" name="playbackPause"></button>
+  <button onclick="playbackcontinue()" style="width:140px" class="i18n" name="playbackcontinue"></button>
+  <br />
+  <span class="i18n" name="startTime"></span><input type="text" id="playback_startTime">
+  <span class="i18n" name="endTime"></span><input type="text" id="playback_endTime">
+  <button onclick="playback_byTime()" class="i18n" name="SpecifyTimeplayback"></button>&nbsp;
+  <button onclick="stopplayback()" style="width:100px" class="i18n" name="stopPlayback"></button>
+  <br />
+  <span class="i18n" name="startTime"></span><input type="text" id="download_startTime">
+  <span class="i18n" name="endTime"></span><input type="text" id="download_endTime">
+  <button onclick="downloadVideoSpecifyTime()" class="i18n" name="downloadVideo"></button>
+  <div style="display: inline-block;width:600px">
+    <div style="margin-top:5px;width:50%;height:15px;border:1px solid black" id="downProcess">
+      <div style="width:0%;height:15px;font-size:10px;color:white;text-align:center;background:blue;" id="downSpecifyTimeProcess"></div>
+    </div>
+  </div>
+  <br>
+  <button class="i18n" name="searchVideoDates" onclick="searchVideoDates()"></button>
+  <select id="searchVideoDates" style="min-width: 50px">
+  </select>
+  <button class="i18n" name="playSelectedDate" onclick="playSelectedDate()"></button>
+  <br />
+  <div id="div_recList">
+    <div style="display: flex;justify-content: space-between;">
+      <span class="i18n" name="videoList"></span>&nbsp;&nbsp;
+      <button onclick="hiddenRecList()" class="i18n" name="close"></button>
+    </div>
+    <div style="height:440px;overflow: auto;">
+      <table id="recListTable" style="border:solid 1px black">
+        <tr>
+          <td style="border:solid 1px black" class="i18n" name="serialNumber"></td>
+          <td style="border:solid 1px black" class="i18n" name="startTime"></td>
+          <td style="border:solid 1px black" class="i18n" name="endTime"></td>
+          <td style="border:solid 1px black" class="i18n" name="duration"></td>
+          <td style="border:solid 1px black" class="i18n" name="videoType"></td>
+          <td style="border:solid 1px black" class="i18n" name="downloadVideo"></td>
+          <td style="border:solid 1px black" class="i18n" name="playback"></td>
+        </tr>
+      </table>
+      </div>	
+        <div style="margin-top:5px;width:100%;height:15px;background:#EEE;border:1px solid black" id="downProcess">
+          <div style="width:0%;height:15px;font-size:10px;color:white;text-align:center;background:blue;" id="process"></div>
+        </div>
+        <div style="width:100%;height:15px;background:#EEE;font-size:10px" id="downSpeed"></div>
+    </div>
+    </div>
+  </div>
+  <!--  -->
+  <div
+    style="top:300px;float:left;position:absolute;width:600px;height:500px;background-color:#EEE;margin:10px;padding:10px;display:none;border:1px solid blue"
+    id="div_recListyuncun">
+    <div style="display: flex;justify-content: space-between;">
+      <span class="i18n" name="videoListyuncun"></span>&nbsp;&nbsp;<a href="#"
+        onclick="document.getElementById('div_recListyuncun').style.display='none';" class="i18n" name="close"></a>
+    </div>
+    <div style="height:470px;overflow: auto;">
+      <table id="recListTableYuncun" style="border:solid 1px black">
+        <tr>
+          <td style="border:solid 1px black" class="i18n" name="serialNumber"></td>
+          <td style="border:solid 1px black" class="i18n" name="m3u8list">M3u8</td>
+          <td style="border:solid 1px black" class="i18n" name="startTime"></td>
+          <td style="border:solid 1px black" class="i18n" name="duration"></td>
+          <th style="border:solid 1px black" class="i18n" name="controls"></th>
+        </tr>
+      </table>
+    </div>
+  </div>
+  <br>
+
+  <table style="border:0px; width:1280px">
+    <tr>
+      <td>
+        <canvas id="canvas1" width="1280" height="720"></canvas>
+      </td>
+    </tr>
+  </table>
+  <div>cloud Playback</div>
+  <div style="font-weight: 900;">Note: Cross-domain issues may occur when accessing the API locally. Please use a cross-domain-enabled browser.</div>
+  <span> search Data </span> <input type="text" id="searchCloudDate" value=""/>
+  <button onclick="searchCloudFile()"> search </button>
+    <div id="cloudVideoDownloadTip"></div>
+  <div class="cloud_file_box" id="cloud_recList">
+    <div style="height:440px;overflow: auto;">
+    <table id="cloud_recListTable" style="border:solid 1px black">
+      <tr>
+        <td>startTime</td>
+        <td>duration(S)</td>
+        <td>videoType</td>
+        <td>downloadVideo</td>
+        <td>playback</td>
+      </tr>
+    </table>	
+    </div>	
+	</div>
+  <div>
+    <button onclick="stopPlayCloudVideo()">stop playback</button>
+    <button onclick="cloudSnapshot()">screenshot</button>
+  </div>
+  <div id="container"></div>
+</body>
+<script>
+  function loadScript(src, attrs) {
+    return new Promise((resolve, reject) => {
+      try {
+        let scriptEle = document.createElement('script')
+        scriptEle.type = 'text/javascript'
+        scriptEle.src = src
+        for (let key in attrs) {
+          scriptEle.setAttribute(key, attrs[key])
+        }
+        scriptEle.addEventListener('load', function () {
+          resolve('success')
+        })
+        document.body.appendChild(scriptEle)
+      } catch (err) {
+        reject(err)
+      }
+    })
+  }
+  window.onload = async function () {
+    window.isHardDecode = false
+    if(typeof VideoDecoder != 'undefined'){
+      const config = {
+        codec: "hev1.1.6.L120.90", //"avc1.42001e"
+        codedWidth: 1080,
+        codedHeight: 720
+      };
+      let { supported } = await VideoDecoder.isConfigSupported(config);
+      if(supported){ window.isHardDecode = true  }
+    }
+    // window.isHardDecode = false
+    if (window.isHardDecode) {
+      document.getElementById('currentDecodingMode').innerText = 'webcodecs'
+      await loadScript("./nalu2mp4.js");
+    } else {
+      document.getElementById('currentDecodingMode').innerText = 'wasm'
+      await loadScript("./jadecoder.js");
+    }
+    await loadScript('./play.js', {
+      async: true
+    })
+    await loadScript('./index.js', {
+      async: true
+    })
+    await loadScript('./cloud.js', {
+      async: true
+    })
+  }
+  
+</script>
+
+</html>

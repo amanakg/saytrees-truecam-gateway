@@ -97,24 +97,22 @@ wss.on('connection', (socket) => {
     clearInterval(watchdogInterval);
   }
   
-  // Start watchdog to monitor frame arrival (3.5s threshold)
+  // Start watchdog to monitor frame arrival (15s threshold on startup/reconnect, 3.5s during active streaming)
   watchdogInterval = setInterval(() => {
-    if (ffmpegProcess) {
-      const idleTime = Date.now() - lastFrameTime;
-      if (idleTime > 3500) {
-        console.warn(`[Gateway] Stream frozen! No frames received for ${idleTime / 1000}s. Forcing seamless reconnect...`);
-        // Stop watchdog first to prevent re-entrant triggers
-        clearInterval(watchdogInterval);
-        watchdogInterval = null;
-        // Kill stale FFmpeg and trigger seamless in-page reconnect directly
-        // (avoids the 1.5s close→reconnect cycle going through socket.close)
-        if (ffmpegProcess) {
-          ffmpegProcess.stdin.end();
-          ffmpegProcess.kill('SIGKILL');
-          ffmpegProcess = null;
-        }
-        triggerReconnect();
+    const idleTime = Date.now() - lastFrameTime;
+    const threshold = ffmpegProcess ? 3500 : 15000;
+    if (idleTime > threshold) {
+      console.warn(`[Gateway] Stream frozen or connection failed! Idle for ${idleTime / 1000}s. Forcing seamless reconnect...`);
+      // Stop watchdog first to prevent re-entrant triggers
+      clearInterval(watchdogInterval);
+      watchdogInterval = null;
+      // Kill stale FFmpeg and trigger seamless in-page reconnect directly
+      if (ffmpegProcess) {
+        ffmpegProcess.stdin.end();
+        ffmpegProcess.kill('SIGKILL');
+        ffmpegProcess = null;
       }
+      triggerReconnect();
     }
   }, 1000);
   

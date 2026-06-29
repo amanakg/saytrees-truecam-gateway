@@ -158,6 +158,7 @@ wss.on('connection', (socket) => {
 
 let currentBrowser = null;
 let reconnectTimeout = null;
+let isIntentionallyClosed = false;
 
 function triggerReconnect() {
   if (reconnectTimeout) return;
@@ -178,6 +179,7 @@ async function launchAutomation() {
   if (currentBrowser) {
     console.log('[Gateway] Closing existing browser instance...');
     try {
+      isIntentionallyClosed = true;
       await currentBrowser.close();
     } catch (e) {
       console.error('[Gateway] Error closing existing browser:', e.message);
@@ -191,11 +193,14 @@ async function launchAutomation() {
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
   currentBrowser = browser;
+  isIntentionallyClosed = false;
 
   // Handle crash or manual close of the browser process
   browser.on('disconnected', () => {
     console.log('[Gateway] Puppeteer browser process disconnected.');
-    triggerReconnect();
+    if (!isIntentionallyClosed) {
+      triggerReconnect();
+    }
   });
   
   const page = await browser.newPage();

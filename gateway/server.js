@@ -96,6 +96,8 @@ dashboardHttpServer.listen(9000, () => {
 const wss = new ws.Server({ port: CONFIG.wsPort });
 console.log(`[Gateway] WebSocket server listening on port ${CONFIG.wsPort}...`);
 
+let isShuttingDown = false;
+let startupTimeout = null;
 let ffmpegProcess = null;
 let lastFrameTime = 0;
 let watchdogInterval = null;
@@ -232,6 +234,7 @@ let reconnectTimeout = null;
 let isIntentionallyClosed = false;
 
 function triggerReconnect() {
+  if (isShuttingDown) return;
   if (isReconnecting || reconnectTimeout) return;
   console.log('[Gateway] Scheduling stream reconnection in 500ms...');
   reconnectTimeout = setTimeout(async () => {
@@ -517,4 +520,79 @@ async function runLoginSequence(page) {
 }
 
 // Start automation after websocket server is ready
-setTimeout(launchAutomation, 2000);
+startupTimeout = setTimeout(launchAutomation, 2000);
+
+async function shutdown() {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  console.log('[Gateway] Shutdown signal received. Cleaning up resources...');
+
+  // 1. Clear all timers
+  if (startupTimeout) {
+    clearTimeout(startupTimeout);
+    startupTimeout = null;
+  }
+  if (reconnectTimeout) {
+    clearTimeout(reconnectTimeout);
+    reconnectTimeout = null;
+  }
+  if (watchdogInterval) {
+    clearInterval(watchdogInterval);
+    watchdogInterval = null;
+  }
+
+  // 2. Terminate FFmpeg
+  if (ffmpegProcess) {
+    console.log('[Gateway] Stopping FFmpeg process...');
+    try {
+      ffmpegProcess.stdin.end();
+      ffmpegProcess.kill('SIGTERM');
+    } catch (e) {
+      console.error('[Gateway] Error stopping FFmpeg:', e.message);
+    }
+    ffmpegProcess = null;
+  }
+
+  // 3. Close Puppeteer Browser
+  if (currentBrowser) {
+    console.log('[Gateway] Closing Puppeteer browser...');
+    try {
+      await currentBrowser.close();
+    } catch (e) {
+      console.error('[Gateway] Error closing Puppeteer browser:', e.message);
+    }
+    currentBrowser = null;
+    currentPage = null;
+  }
+
+  // 4. Close WebSocket Server
+  if (wss) {
+    console.log('[Gateway] Closing WebSocket server...');
+    await new Promise((resolve) => wss.close(() => resolve()));
+  }
+
+  // 5. Close HTTP Servers
+  if (sdkHttpServer) {
+    console.log('[Gateway] Closing SDK HTTP server...');
+    await new Promise((resolve) => sdkHttpServer.close(() => resolve()));
+  }
+  if (typeof dashboardHttpServer !== 'undefined' && dashboardHttpServer) {
+    console.log('[Gateway] Closing Dashboard HTTP server...');
+    await new Promise((resolve) => dashboardHttpServer.close(() => resolve()));
+  }
+
+  console.log('[Gateway] Shutdown complete.');
+}
+
+// Signal Listeners
+process.on('SIGTERM', async () => {
+  console.log('[Gateway] Received SIGTERM.');
+  await shutdown();
+  process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+  console.log('[Gateway] Received SIGINT (Ctrl+C).');
+  await shutdown();
+  process.exit(0);
+});

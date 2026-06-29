@@ -97,7 +97,10 @@ wss.on('connection', (socket) => {
           }
           
           // Spawn FFmpeg to package and stream to MediaMTX
-          const ffmpegPath = "C:\\Users\\chellakumarr\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1.2-full_build\\bin\\ffmpeg.exe";
+          let ffmpegPath = "C:\\Users\\chellakumarr\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1.2-full_build\\bin\\ffmpeg.exe";
+          if (process.platform === 'linux') {
+            ffmpegPath = 'ffmpeg';
+          }
           
           const ffmpegArgs = [
             '-y',

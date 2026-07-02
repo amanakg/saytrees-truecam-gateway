@@ -207,6 +207,22 @@
       pointer-events: none;
     }
 
+    /* ── Overlay bottom-left: stream metadata ── */
+    .cam-overlay-bl {
+      position: absolute; bottom: 12px; left: 12px;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(4px);
+      border-radius: 4px;
+      padding: 4px 8px;
+      font-size: 11px;
+      color: #e2e8f0;
+      font-family: monospace;
+      pointer-events: none;
+      z-index: 10;
+      display: none;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
     /* ── Status badge center ── */
     .cam-status-center {
       position: absolute; inset: 0;
@@ -381,6 +397,7 @@
           <div class="cam-label">CAM 1</div>
         </div>
         <div class="cam-overlay-tr" id="clock1"></div>
+        <div class="cam-overlay-bl" id="meta1"></div>
 
         <div class="cam-status-center" id="status1">
           <div class="spinner" id="spinner1"></div>
@@ -419,6 +436,7 @@
           <div class="cam-label">CAM 2</div>
         </div>
         <div class="cam-overlay-tr" id="clock2"></div>
+        <div class="cam-overlay-bl" id="meta2"></div>
 
         <div class="cam-status-center" id="status2">
           <div class="spinner" id="spinner2"></div>
@@ -470,11 +488,11 @@
   <div class="theater-body">
     <div class="theater-slot">
       <video id="tvideo1" autoplay muted playsinline></video>
-      <div class="theater-slot-label">Enarxi Cam 1 · 367ABDWN1000346168</div>
+      <div class="theater-slot-label" id="tlabel1">Enarxi Cam 1 · 367ABDWN1000346168</div>
     </div>
     <div class="theater-slot">
       <video id="tvideo2" autoplay muted playsinline></video>
-      <div class="theater-slot-label">Enarxi Cam 2 · F14504WN1000345886</div>
+      <div class="theater-slot-label" id="tlabel2">Enarxi Cam 2 · F14504WN1000345886</div>
     </div>
   </div>
 </div>
@@ -684,6 +702,54 @@
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeTheater();
   });
+
+  // ── Dynamic Metadata Fetching from API ──
+  async function fetchMetadata() {
+    try {
+      const response = await fetch('http://168.144.84.199:3000/api/clients/enarxi/cameras', {
+        headers: {
+          'x-api-key': 'dummy_hash_for_testing'
+        }
+      });
+      if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+      const data = await response.json();
+      
+      data.forEach(cam => {
+        const matched = CAMERAS.find(c => c.deviceId === cam.id);
+        if (matched) {
+          const idx = matched.id;
+          const metaDiv = document.getElementById(`meta${idx}`);
+          const tlabel = document.getElementById(`tlabel${idx}`);
+          
+          if (cam.status === 'connected' && cam.metadata && cam.metadata.resolution) {
+            const metaStr = `${cam.metadata.resolution} · ${cam.metadata.fps}fps · ${cam.metadata.codec.toUpperCase()}`;
+            
+            // Update main grid overlay
+            if (metaDiv) {
+              metaDiv.textContent = metaStr;
+              metaDiv.style.display = 'block';
+            }
+            
+            // Update theater view label
+            if (tlabel) {
+              tlabel.textContent = `Enarxi Cam ${idx} · ${cam.id} (${metaStr})`;
+            }
+          } else {
+            if (metaDiv) metaDiv.style.display = 'none';
+            if (tlabel) {
+              tlabel.textContent = `Enarxi Cam ${idx} · ${cam.id}`;
+            }
+          }
+        }
+      });
+    } catch (e) {
+      console.warn('Failed to fetch camera metadata:', e.message);
+    }
+  }
+
+  // Poll metadata every 5 seconds
+  setInterval(fetchMetadata, 5000);
+  fetchMetadata();
 
   // ── Boot ──
   CAMERAS.forEach(cam => initCamera(cam));

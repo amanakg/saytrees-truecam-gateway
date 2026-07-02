@@ -479,6 +479,7 @@
   </div>
 </div>
 
+<script src="./player-embed.js"></script>
 <script>
   // Catch global errors and log them to the screen
   const debugLogs = [];
@@ -531,28 +532,16 @@
   // ── WebRTC player setup using MediaMTX WHEP ──
   function setupPlayer(videoEl, whepUrl, camIdx, onLive, onError) {
     addDebugLog(`Connecting WebRTC for Cam ${camIdx}...`);
-    try {
-      const reader = new MediaMTXWebRTCReader({
-        url: whepUrl,
-        onError: (err) => {
-          addDebugLog(`Cam ${camIdx} WebRTC: ${err}`, 'error');
-          onError && onError(err);
-        },
-        onTrack: (evt) => {
-          addDebugLog(`WebRTC feed connected for Cam ${camIdx}.`);
-          videoEl.srcObject = evt.streams[0];
-          videoEl.play().catch((e) => {
-            addDebugLog(`Play interrupted for Cam ${camIdx}: ${e.message}`, 'warning');
-          });
-          onLive && onLive();
-        }
-      });
-      return reader;
-    } catch (e) {
-      addDebugLog(`Failed to create WebRTC connection: ${e.message}`, 'error');
-      onError && onError(e.message);
-      return null;
-    }
+    return mountCameraPlayer(videoEl, whepUrl, {
+      onLive: onLive,
+      onError: (err) => {
+        addDebugLog(`Cam ${camIdx} WebRTC Error: ${err}`, 'error');
+        onError && onError(err);
+      },
+      onDebug: (msg, type) => {
+        addDebugLog(`Cam ${camIdx}: ${msg}`, type);
+      }
+    });
   }
 
   // ── Set camera UI state ──

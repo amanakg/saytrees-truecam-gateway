@@ -39,40 +39,41 @@ The files are hosted on the VPS at `/opt/truecam/`:
 
 ---
 
-## 3. Systemd Service Configuration
+## 3. Systemd Service Configuration (Worker Pool)
 
-The Camera 2 gateway runs as a systemd background service on the VPS.
+The worker pool runs as templated systemd background services on the VPS, allowing multiple worker processes to run under isolated unit instances.
 
 ### Service File Path
-`/etc/systemd/system/truecam-gateway.service`
+`/etc/systemd/system/truecam-worker@.service`
 
 ### Service Content
 ```ini
 [Unit]
-Description=Truecam H5SDK Stream Forwarding Gateway
+Description=Truecam H5SDK Stream Worker Pool - Worker %i
 After=network.target
 
 [Service]
 Type=simple
 User=root
 WorkingDirectory=/opt/truecam/gateway
-ExecStart=/usr/bin/node server.js
+ExecStart=/usr/bin/node worker.js --workerId=worker%i
 Restart=always
 RestartSec=5
 StandardOutput=syslog
 StandardError=syslog
-SyslogIdentifier=truecam-gateway
+SyslogIdentifier=truecam-worker@%i
 
 [Install]
 WantedBy=multi-user.target
 ```
 
 ### Systemctl Management Commands
-* **Start service**: `systemctl start truecam-gateway`
-* **Stop service**: `systemctl stop truecam-gateway`
-* **Restart service**: `systemctl restart truecam-gateway`
-* **Check status**: `systemctl status truecam-gateway`
-* **Reload configuration after editing `.service` file**: `systemctl daemon-reload`
+* **Start worker 1**: `systemctl start truecam-worker@1`
+* **Stop worker 1**: `systemctl stop truecam-worker@1`
+* **Enable worker 1 on boot**: `systemctl enable truecam-worker@1`
+* **Restart worker 1**: `systemctl restart truecam-worker@1`
+* **Check status**: `systemctl status truecam-worker@1`
+* **Reload systemd configuration**: `systemctl daemon-reload`
 
 ---
 
@@ -80,17 +81,17 @@ WantedBy=multi-user.target
 
 ### A. Systemd Journal Logs (Stdout & Stderr)
 To inspect execution history and real-time logs managed by systemd:
-* **Tail logs in real-time**:
+* **Tail logs for worker 1 in real-time**:
   ```bash
-  journalctl -u truecam-gateway.service -f
+  journalctl -u truecam-worker@1.service -f
   ```
 * **View last 100 lines**:
   ```bash
-  journalctl -u truecam-gateway.service -n 100 --no-pager
+  journalctl -u truecam-worker@1.service -n 100 --no-pager
   ```
 * **View scrollable logs**:
   ```bash
-  journalctl -u truecam-gateway.service
+  journalctl -u truecam-worker@1.service
   ```
 
 ### B. Application-level Log Files

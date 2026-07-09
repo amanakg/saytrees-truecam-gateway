@@ -1,5 +1,6 @@
 // worker.js
 // Parameterized, shared-browser worker pool for Truecam cameras
+// Refactored for Single Page Multi-Camera Architecture
 
 const ws = require('ws');
 const { spawn } = require('child_process');
@@ -21,7 +22,7 @@ process.argv.slice(2).forEach(val => {
 const workerId = args.workerId || 'worker1';
 const baseWsPort = parseInt(args.baseWsPort, 10) || 8080;
 
-console.log(`[Worker:${workerId}] Booting worker pool...`);
+console.log(`[Worker:${workerId}] Booting worker pool (Single Page Multi-Camera)...`);
 
 // Locate directories
 let sdkPath = path.join(__dirname, '..', 'sdk_dist');
@@ -103,7 +104,6 @@ function getFfmpegPath() {
   if (process.platform === 'linux') {
     return 'ffmpeg';
   }
-  // Try to find winget Gyan.FFmpeg installation dynamically on Windows
   try {
     const wingetDir = path.join(process.env.LOCALAPPDATA || 'C:\\Users\\Admin\\AppData\\Local', 'Microsoft/WinGet/Packages');
     if (fs.existsSync(wingetDir)) {
@@ -116,26 +116,171 @@ function getFfmpegPath() {
     }
   } catch (e) {}
 
-  // Fallback to absolute developer path
-  return "C:\\Users\\chellakumarr\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1.2-full_build\\bin\\ffmpeg.exe";
+  return 'ffmpeg';
 }
 
 const ffmpegPath = getFfmpegPath();
 console.log(`[Worker:${workerId}] Using FFmpeg binary: ${ffmpegPath}`);
 
 /**
- * CameraBridge Class handles the lifecycle of a single camera stream.
+ * AccountPage manages a single shared page for a specific account email.
+ * This multiplexes all cameras for this account into one V8/WASM context.
+ */
+class AccountPage {
+  constructor(accountEmail, accountPassword, browser) {
+    this.accountEmail = accountEmail;
+    this.accountPassword = accountPassword;
+    this.browser = browser;
+    this.page = null;
+    this.isReady = false;
+    this.initializationPromise = null;
+  }
+
+  async getReadyPage() {
+    if (this.isReady && this.page && !this.page.isClosed()) {
+      return this.page;
+    }
+    if (!this.initializationPromise) {
+      this.initializationPromise = this.initPage();
+    }
+    await this.initializationPromise;
+    return this.page;
+  }
+
+  async initPage() {
+    console.log(`[AccountPage:${this.accountEmail}] Initializing shared page...`);
+    try {
+      this.page = await this.browser.newPage();
+      
+      this.page.on('dialog', async (dialog) => {
+        await dialog.accept();
+      });
+
+      this.page.on('console', (msg) => {
+        console.log(`[Browser] ${msg.text()}`);
+      });
+      this.page.on('pageerror', (err) => {
+        console.error(`[Browser Error] ${err.toString()}`);
+      });
+
+      await this.page.evaluateOnNewDocument(() => {
+        // Optimize Memory & CPU: Stub out rendering and audio
+        try {
+          window.requestAnimationFrame = (cb) => setTimeout(cb, 1000);
+          window.cancelAnimationFrame = () => {};
+
+          window.AudioContext = function() { return { createMediaStreamSource: () => ({}), close: () => {} }; };
+          window.webkitAudioContext = window.AudioContext;
+          window.RTCPeerConnection = null;
+          window.RTCSessionDescription = null;
+
+          const originalGetContext = HTMLCanvasElement.prototype.getContext;
+          HTMLCanvasElement.prototype.getContext = function(type, ...args) {
+            const ctx = originalGetContext.call(this, type, ...args);
+            if (ctx) {
+              if (type === '2d') {
+                ctx.drawImage = () => {};
+                ctx.putImageData = () => {};
+              } else if (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl') {
+                ctx.drawArrays = () => {};
+                ctx.drawElements = () => {};
+              }
+            }
+            return ctx;
+          };
+        } catch (e) {}
+      });
+
+      await this.page.goto('http://localhost:8000/', { waitUntil: 'networkidle2' });
+      
+      console.log(`[AccountPage:${this.accountEmail}] Running login sequence...`);
+      await this.page.evaluate(async (acc, pwd) => {
+        document.getElementById('login-account').value = acc;
+        document.getElementById('login-password').value = pwd;
+        document.getElementById('loginBtn').click();
+        
+        await new Promise((resolve) => {
+          const interval = setInterval(() => {
+            if (window.access_token) {
+              clearInterval(interval);
+              resolve();
+            }
+          }, 500);
+        });
+        
+        // Wait for device list to load as a sign of full SDK readiness
+        let loaded = false;
+        while (!loaded) {
+          try {
+            await getDeviceList();
+            loaded = true;
+          } catch (err) {
+            await new Promise(r => setTimeout(r, 2000));
+          }
+        }
+
+        // Install Global Multiplexed Interceptor
+        window.__wsConnections = window.__wsConnections || {};
+        
+        const interceptorInterval = setInterval(() => {
+          if (window.ConnectApi && window.ConnectApi.onrecvframeex && !window.ConnectApi.onrecvframeex.toString().includes('__wsConnections')) {
+            const original = window.ConnectApi.onrecvframeex;
+            window.ConnectApi.onrecvframeex = function (api_conn, frametype, data, datalen, channel, width, height, enc, fps, timestamp) {
+              console.log(`[Browser] Frame received! deviceId=${api_conn.deviceid}, frametype=${frametype}, len=${datalen}, res=${width}x${height}, enc=${enc}`);
+              if (frametype === 1 || frametype === 2) {
+                // Look up the correct WebSocket based on api_conn.deviceid
+                const ws = window.__wsConnections[api_conn.deviceid];
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                  if (!ws.isInitSent) {
+                    const initPayload = JSON.stringify({ type: 'init', enc: enc, width: width, height: height, fps: fps });
+                    console.log(`[Browser] Sending init payload: ${initPayload}`);
+                    ws.send(initPayload);
+                    ws.isInitSent = true;
+                    console.log(`[Browser] Sent init for ${api_conn.deviceid}`);
+                  }
+                  ws.send(data);
+                } else {
+                  console.log(`[Browser] WS not ready for ${api_conn.deviceid}`);
+                }
+              }
+              original.apply(this, arguments);
+            };
+            console.log('[Browser] Global Multiplexed Interceptor installed (or re-installed).');
+          }
+        }, 100);
+
+      }, this.accountEmail, this.accountPassword);
+
+      this.isReady = true;
+      console.log(`[AccountPage:${this.accountEmail}] Shared page is ready!`);
+    } catch (err) {
+      this.initializationPromise = null;
+      throw err;
+    }
+  }
+
+  async close() {
+    if (this.page) {
+      try { await this.page.close(); } catch (e) {}
+    }
+    this.isReady = false;
+  }
+}
+
+/**
+ * CameraBridge handles routing a single camera's stream to FFmpeg.
+ * It does NOT own a browser page. It uses the AccountManager to send commands.
  */
 class CameraBridge {
-  constructor(device, wsPort) {
+  constructor(device, wsPort, accountManager) {
     this.deviceId = device.device_id;
     this.deviceSecret = device.device_secret;
     this.nickname = device.nickname || device.device_id;
     this.accountEmail = device.account_email;
     this.accountPassword = device.account_password_ref;
-    // Derive stream URL
-    this.streamUrl = `rtsp://168.144.84.199:8554/live/${device.stream_name}`;
+    this.streamUrl = `rtsp://127.0.0.1:8554/live/${device.stream_name}`;
     this.wsPort = wsPort;
+    this.accountManager = accountManager;
 
     this.wss = null;
     this.ffmpegProcess = null;
@@ -143,35 +288,22 @@ class CameraBridge {
     this.lastFrameTime = 0;
     this.lastDbUpdateTime = 0;
     this.reconnectTimeout = null;
-    this.page = null;
-    this.browserContext = null;
-    this.isReconnecting = false;
     this.isStopping = false;
+    this.isReconnecting = false;
 
     this.logPrefix = `[${this.nickname}][Port:${this.wsPort}]`;
   }
 
-  log(...args) {
-    console.log(`${this.logPrefix}`, ...args);
-  }
+  log(...args) { console.log(`${this.logPrefix}`, ...args); }
+  warn(...args) { console.warn(`${this.logPrefix} [WARN]`, ...args); }
+  error(...args) { console.error(`${this.logPrefix} [ERROR]`, ...args); }
 
-  warn(...args) {
-    console.warn(`${this.logPrefix} [WARN]`, ...args);
-  }
-
-  error(...args) {
-    console.error(`${this.logPrefix} [ERROR]`, ...args);
-  }
-
-  async start(browser) {
-    this.log('Starting bridge...');
+  async start() {
+    this.log('Starting bridge controller...');
     db.updateStatus(this.deviceId, 'connecting');
     
-    // 1. Start WebSocket Server
     this.setupWebSocketServer();
-
-    // 2. Launch Puppeteer Page
-    await this.launchPage(browser);
+    await this.connectCameraInPage();
   }
 
   setupWebSocketServer() {
@@ -179,18 +311,16 @@ class CameraBridge {
     this.log(`WebSocket server listening...`);
 
     this.wss.on('connection', (socket) => {
-      this.log('Browser SDK page connected to WS!');
+      this.activeSocket = socket;
+      this.log('Browser SDK routed WS connection established!');
       this.lastFrameTime = Date.now();
       db.updateStatus(this.deviceId, 'connected', new Date().toISOString());
 
-      if (this.watchdogInterval) {
-        clearInterval(this.watchdogInterval);
-      }
+      if (this.watchdogInterval) clearInterval(this.watchdogInterval);
 
-      // Watchdog: 15s startup window, 3.5s active streaming
       this.watchdogInterval = setInterval(() => {
         const idleTime = Date.now() - this.lastFrameTime;
-        const threshold = this.ffmpegProcess ? 3500 : 15000;
+        const threshold = this.ffmpegProcess ? 5000 : 45000;
         if (idleTime > threshold) {
           this.warn(`Stream idle for ${idleTime / 1000}s. Triggering reconnect...`);
           clearInterval(this.watchdogInterval);
@@ -202,8 +332,16 @@ class CameraBridge {
       }, 1000);
 
       socket.on('message', (message) => {
-        // Detect text config message
-        if (typeof message === 'string' || (Buffer.isBuffer(message) && message[0] === 123)) { // '{' is 123
+        if (!this.firstMessageLogged) {
+          this.firstMessageLogged = true;
+          this.log(`First message received! Type: ${typeof message}, IsBuffer: ${Buffer.isBuffer(message)}, Byte0: ${message[0]}`);
+          if (Buffer.isBuffer(message)) {
+            this.log(`First 20 bytes: ${message.slice(0, 20).toString('hex')}`);
+            this.log(`Stringified: ${message.toString('utf8').substring(0, 100)}`);
+          }
+        }
+
+        if (typeof message === 'string' || (Buffer.isBuffer(message) && message[0] === 123)) {
           try {
             const initData = JSON.parse(message.toString());
             if (initData.type === 'init') {
@@ -215,18 +353,14 @@ class CameraBridge {
               db.updateMetadata(this.deviceId, codec, resolution, fps);
               this.startFfmpeg(initData);
             }
-          } catch (e) {
-            // ignore JSON parse errors
-          }
+          } catch (e) {}
           return;
         }
 
-        // Forward binary frame to FFmpeg standard input
         if (this.ffmpegProcess && this.ffmpegProcess.stdin.writable) {
           this.lastFrameTime = Date.now();
           this.ffmpegProcess.stdin.write(message);
 
-          // Throttled database update for frame arrival (every 30 seconds)
           const now = Date.now();
           if (now - this.lastDbUpdateTime > 30000) {
             db.updateStatus(this.deviceId, 'connected', new Date().toISOString());
@@ -236,16 +370,17 @@ class CameraBridge {
       });
 
       socket.on('close', () => {
-        this.log('Browser SDK page disconnected.');
-        this.cleanupSession();
-        this.triggerReconnect();
+        if (this.activeSocket === socket) {
+          this.log('Browser SDK page disconnected WS.');
+          this.cleanupSession();
+          this.triggerReconnect();
+        }
       });
     });
   }
 
   startFfmpeg(initData) {
     this.killFfmpeg();
-
     const isH265 = initData.enc && (initData.enc.includes('265') || initData.enc.includes('hevc'));
     const inputFormat = isH265 ? 'hevc' : 'h264';
     
@@ -269,24 +404,21 @@ class CameraBridge {
 
     this.ffmpegProcess = spawn(ffmpegPath, ffmpegArgs);
 
+    this.ffmpegProcess.stdin.on('error', (err) => {
+      // Ignore EPIPE errors which happen if FFmpeg dies and we try to write to it
+      if (err.code !== 'EPIPE' && err.code !== 'EOF') {
+        this.error(`FFmpeg stdin error: ${err.message}`);
+      }
+    });
+
+    this.ffmpegProcess.stderr.on('data', (data) => {
+      this.log(`[FFmpeg] ${data.toString().trim()}`);
+    });
+
     this.ffmpegProcess.on('error', (err) => {
       this.error(`FFmpeg process failed to spawn: ${err.message}`);
       this.ffmpegProcess = null;
       this.triggerReconnect();
-    });
-
-    this.ffmpegProcess.stdin.on('error', (err) => {
-      this.error(`FFmpeg stdin error: ${err.message}`);
-    });
-
-    this.ffmpegProcess.stderr.on('data', (data) => {
-      // Log FFmpeg statistics lines
-      const msg = data.toString().trim();
-      if (msg.includes('fps=') || msg.includes('speed=')) {
-        // optionally throttle logging
-      } else {
-        this.log(`[FFmpeg] ${msg}`);
-      }
     });
 
     this.ffmpegProcess.on('close', (code) => {
@@ -326,239 +458,58 @@ class CameraBridge {
     this.reconnectTimeout = setTimeout(async () => {
       this.reconnectTimeout = null;
       try {
-        await this.reconnectAutomation();
+        this.isReconnecting = true;
+        await this.connectCameraInPage();
       } catch (err) {
-        this.error(`Reconnection automation failed: ${err.message}`);
+        this.error(`Reconnection failed: ${err.message}`);
         this.triggerReconnect();
+      } finally {
+        this.isReconnecting = false;
       }
     }, 2000);
   }
 
-  async reconnectAutomation() {
-    if (this.isStopping || this.isReconnecting) return;
-    this.isReconnecting = true;
-
+  async connectCameraInPage() {
     try {
-      if (this.page && !this.page.isClosed()) {
-        this.log('Using fast in-page reconnect...');
-        await this.runReconnectSequence();
-      } else {
-        this.log('Restarting browser tab...');
-        await this.restartTab();
-      }
-    } catch (err) {
-      this.error(`In-page reconnect failed, restarting tab: ${err.message}`);
-      await this.restartTab();
-    } finally {
-      this.isReconnecting = false;
-    }
-  }
-
-  async restartTab() {
-    if (this.page) {
-      try { await this.page.close(); } catch(e) {}
-      this.page = null;
-    }
-    if (this.browserContext) {
-      try { await this.browserContext.close(); } catch(e) {}
-      this.browserContext = null;
-    }
-
-    this.log('Opening new isolated browser tab...');
-    // Create incognito context for session isolation
-    const browser = this.globalBrowser;
-    try {
-      this.browserContext = await browser.createBrowserContext();
-    } catch (e) {
-      try {
-        this.browserContext = await browser.createIncognitoBrowserContext();
-      } catch (err) {
-        this.browserContext = browser;
-      }
-    }
-
-    this.page = await this.browserContext.newPage();
-    
-    // Auto-accept alerts
-    this.page.on('dialog', async (dialog) => {
-      this.log(`Dialog intercepted: ${dialog.message()}`);
-      await dialog.accept();
-    });
-
-    // Expose config to page
-    const config = {
-      account: this.accountEmail,
-      password: this.accountPassword,
-      deviceId: this.deviceId,
-      deviceSecret: this.deviceSecret,
-      wsPort: this.wsPort
-    };
-    await this.page.evaluateOnNewDocument((cfg) => {
-      window.__GATEWAY_CONFIG = cfg;
+      const page = await this.accountManager.getReadyPage();
       
-      // Optimize CPU: Stub out canvas drawing context to skip GPU/CPU rendering overhead in headless Chrome
-      try {
-        const originalGetContext = HTMLCanvasElement.prototype.getContext;
-        HTMLCanvasElement.prototype.getContext = function(type, ...args) {
-          const ctx = originalGetContext.call(this, type, ...args);
-          if (ctx) {
-            if (type === '2d') {
-              ctx.drawImage = () => {};
-              ctx.putImageData = () => {};
-            } else if (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl') {
-              ctx.drawArrays = () => {};
-              ctx.drawElements = () => {};
-            }
-          }
-          return ctx;
-        };
-      } catch (e) {}
-    }, config);
-
-    this.page.on('console', (msg) => {
-      this.log(`[Browser Console] ${msg.text()}`);
-    });
-
-    await this.page.goto('http://localhost:8000/', { waitUntil: 'networkidle2' });
-    await this.runLoginSequence();
-  }
-
-  async runLoginSequence() {
-    this.log('Running login & connection sequence...');
-    await this.page.evaluate(async () => {
-      document.getElementById('login-account').value = window.__GATEWAY_CONFIG.account;
-      document.getElementById('login-password').value = window.__GATEWAY_CONFIG.password;
-      
-      console.log('[Browser] Submitting credentials...');
-      document.getElementById('loginBtn').click();
-      
-      // Wait for token
-      await new Promise((resolve) => {
-        const interval = setInterval(() => {
-          if (window.access_token) {
-            clearInterval(interval);
-            resolve();
-          }
-        }, 500);
-      });
-
-      console.log('[Browser] Login success. Retrieving device list...');
-      let loaded = false;
-      while (!loaded) {
-        try {
-          await getDeviceList();
-          const select = document.getElementById('dev_id');
-          if (select && select.options.length > 0) {
-            for (let i = 0; i < select.options.length; i++) {
-              if (select.options[i].value.includes(window.__GATEWAY_CONFIG.deviceId)) {
-                select.selectedIndex = i;
-                select.dispatchEvent(new Event('change'));
-                loaded = true;
-                break;
-              }
-            }
-          }
-        } catch (err) {}
-        if (!loaded) {
-          await new Promise(r => setTimeout(r, 2000));
+      this.log('Injecting connection command into shared page...');
+      await page.evaluate((devId, devSecret, wsPort) => {
+        window.__wsConnections = window.__wsConnections || {};
+        
+        // Clean up previous connection for this device
+        if (window.__wsConnections[devId]) {
+          try { window.__wsConnections[devId].close(); } catch(e) {}
         }
-      }
+        if (window.Player && window.Player.DisConnectDevice) {
+          try { window.Player.DisConnectDevice(devId); } catch(e) {}
+        }
 
-      document.getElementById('pwd').value = window.__GATEWAY_CONFIG.deviceSecret;
-      document.getElementById('streamtype').value = "1"; // Main Stream
+        // Establish WS pipe for frames
+        const wsUrl = `ws://localhost:${wsPort}`;
+        const ws = new WebSocket(wsUrl);
+        ws.binaryType = 'arraybuffer';
+        window.__wsConnections[devId] = ws;
 
-      console.log('[Browser] Connecting to device target...');
-      connect();
-
-      // Open WS
-      if (window.__gatewayWs && window.__gatewayWs.readyState !== WebSocket.CLOSED) {
-        window.__gatewayWs.close();
-      }
-      const wsUrl = `ws://localhost:${window.__GATEWAY_CONFIG.wsPort}`;
-      const ws = new WebSocket(wsUrl);
-      ws.binaryType = 'arraybuffer';
-      window.__gatewayWs = ws;
-
-      ws.onopen = () => {
-        console.log('[Browser] WebSocket connected. Installing interceptor...');
-        let isInitSent = false;
-        const interval = setInterval(() => {
-          if (window.ConnectApi && window.ConnectApi.onrecvframeex) {
-            const original = window.ConnectApi.onrecvframeex;
-            window.ConnectApi.onrecvframeex = function (api_conn, frametype, data, datalen, channel, width, height, enc, fps, timestamp) {
-              if (frametype === 1 || frametype === 2) {
-                if (ws.readyState === WebSocket.OPEN) {
-                  if (!isInitSent) {
-                    ws.send(JSON.stringify({ type: 'init', enc: enc, width: width, height: height, fps: fps }));
-                    isInitSent = true;
-                    console.log('[Browser] Init metadata sent.');
-                  }
-                  ws.send(data);
+        ws.onopen = () => {
+          // Send connect command to SDK
+          setTimeout(() => {
+             // arguments: devid, ip, user, pwd, winindex, port, connectType, channel, streamid, wss, cb
+             window.Player.ConnectDevice(devId, "", "admin", devSecret, 0, 80, 0, 0, 1, "wss", window.onResolv);
+             
+             // The SDK's openvideo/play function automatically starts pulling frames after ConnectDevice finishes
+             setTimeout(() => {
+                if (window.Player && window.Player.OpenStream) {
+                  window.Player.OpenStream(devId, "", 0, 1, 0);
                 }
-              }
-              original.apply(this, arguments);
-            };
-            clearInterval(interval);
-            console.log('[Browser] Interceptor successfully installed.');
-          }
-        }, 100);
-      };
+             }, 3000);
+          }, 500);
+        };
+      }, this.deviceId, this.deviceSecret, this.wsPort);
 
-      setTimeout(() => {
-        console.log('[Browser] Opening video stream...');
-        openvideo();
-      }, 4000);
-    });
-  }
-
-  async runReconnectSequence() {
-    await this.page.evaluate(async () => {
-      try { if (typeof disconnect === 'function') disconnect(); } catch(e) {}
-      if (window.__gatewayWs && window.__gatewayWs.readyState !== WebSocket.CLOSED) {
-        window.__gatewayWs.close();
-        await new Promise(r => setTimeout(r, 150));
-      }
-      await new Promise(r => setTimeout(r, 300));
-      
-      console.log('[Browser] Reconnecting P2P...');
-      connect();
-
-      const wsUrl = `ws://localhost:${window.__GATEWAY_CONFIG.wsPort}`;
-      const ws = new WebSocket(wsUrl);
-      ws.binaryType = 'arraybuffer';
-      window.__gatewayWs = ws;
-
-      ws.onopen = () => {
-        let isInitSent = false;
-        const interval = setInterval(() => {
-          if (window.ConnectApi && window.ConnectApi.onrecvframeex) {
-            const original = window.ConnectApi.onrecvframeex;
-            window.ConnectApi.onrecvframeex = function (api_conn, frametype, data, datalen, channel, width, height, enc, fps, timestamp) {
-              if (frametype === 1 || frametype === 2) {
-                if (ws.readyState === WebSocket.OPEN) {
-                  if (!isInitSent) {
-                    ws.send(JSON.stringify({ type: 'init', enc: enc, width: width, height: height, fps: fps }));
-                    isInitSent = true;
-                  }
-                  ws.send(data);
-                }
-              }
-              original.apply(this, arguments);
-            };
-            clearInterval(interval);
-          }
-        }, 100);
-      };
-
-      setTimeout(() => {
-        openvideo();
-      }, 3000);
-    });
-  }
-
-  async launchPage(browser) {
-    this.globalBrowser = browser;
-    await this.restartTab();
+    } catch (err) {
+      throw err;
+    }
   }
 
   async stop() {
@@ -570,17 +521,19 @@ class CameraBridge {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
     }
-
     this.cleanupSession();
 
-    if (this.page) {
-      try { await this.page.close(); } catch(e) {}
-      this.page = null;
-    }
-    if (this.browserContext) {
-      try { await this.browserContext.close(); } catch(e) {}
-      this.browserContext = null;
-    }
+    try {
+      const page = await this.accountManager.getReadyPage();
+      await page.evaluate((devId) => {
+        if (window.__wsConnections && window.__wsConnections[devId]) {
+          try { window.__wsConnections[devId].close(); } catch(e) {}
+        }
+        if (window.Player && window.Player.DisConnectDevice) {
+          try { window.Player.DisConnectDevice(devId); } catch(e) {}
+        }
+      }, this.deviceId);
+    } catch(e) {}
 
     if (this.wss) {
       await new Promise((resolve) => this.wss.close(() => resolve()));
@@ -592,9 +545,9 @@ class CameraBridge {
 // Initialize and boot bridge array
 let browserInstance = null;
 const activeBridges = [];
+const accountPages = new Map();
 
 async function boot() {
-  // Query all active bridge devices for this worker from the registry
   const allBridgeDevices = db.db.prepare(`
     SELECT * FROM devices 
     WHERE ingest_tier = 'bridge' AND worker_id = ?
@@ -602,26 +555,41 @@ async function boot() {
   `).all(workerId);
 
   console.log(`[Worker:${workerId}] Found ${allBridgeDevices.length} devices assigned in registry.`);
-  
   if (allBridgeDevices.length === 0) {
     console.log(`[Worker:${workerId}] No devices assigned. Waiting in idle loop...`);
     return;
   }
 
-  // Get index list of all bridge devices globally to derive deterministic WS ports
   const allBridgeGlobal = db.db.prepare(`
     SELECT device_id FROM devices 
     WHERE ingest_tier = 'bridge' 
     ORDER BY created_at
   `).all();
 
-  // Start HTTP static servers (they bind safely once)
   startHttpServers();
 
-  console.log(`[Worker:${workerId}] Launching shared Puppeteer browser...`);
+  console.log(`[Worker:${workerId}] Launching shared Puppeteer browser with memory optimizations...`);
   browserInstance = await puppeteer.launch({
     headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
+    args: [
+      '--no-sandbox', 
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--disable-software-rasterizer',
+      '--disable-extensions',
+      '--disable-background-networking',
+      '--disable-default-apps',
+      '--disable-sync',
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--disable-translate',
+      '--disable-hang-monitor',
+      '--mute-audio',
+      '--disable-audio-output',
+      '--js-flags=--max-old-space-size=64',
+      '--renderer-process-limit=1'
+    ]
   });
 
   browserInstance.on('disconnected', () => {
@@ -631,20 +599,24 @@ async function boot() {
 
   // Start a bridge for each camera
   for (const device of allBridgeDevices) {
-    // Derive deterministic port: baseWsPort + index in global list
+    const email = device.account_email;
+    let accountPage = accountPages.get(email);
+    if (!accountPage) {
+      accountPage = new AccountPage(email, device.account_password_ref, browserInstance);
+      accountPages.set(email, accountPage);
+    }
+
     const index = allBridgeGlobal.findIndex(d => d.device_id === device.device_id);
     const wsPort = baseWsPort + (index >= 0 ? index : 0);
 
-    const bridge = new CameraBridge(device, wsPort);
+    const bridge = new CameraBridge(device, wsPort, accountPage);
     activeBridges.push(bridge);
     
-    // Launch bridge asynchronously (parallel tab startup)
-    bridge.start(browserInstance).catch(err => {
+    bridge.start().catch(err => {
       console.error(`[Worker:${workerId}] Error starting camera bridge ${device.device_id}:`, err.message);
     });
 
-    // Small stagger delay between tab openings to prevent CPU thrashing
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise(r => setTimeout(r, 1000));
   }
 }
 
@@ -654,32 +626,22 @@ async function shutdown(exitCode = 0) {
   isShuttingDown = true;
   console.log(`[Worker:${workerId}] Shutting down resources gracefully...`);
 
-  // Stop all camera bridges
   for (const bridge of activeBridges) {
-    try {
-      await bridge.stop();
-    } catch (e) {
-      console.error(`Error stopping bridge ${bridge.nickname}:`, e.message);
-    }
+    try { await bridge.stop(); } catch (e) {}
+  }
+  
+  for (const [email, accountPage] of accountPages) {
+    try { await accountPage.close(); } catch (e) {}
   }
 
-  // Close Puppeteer
   if (browserInstance) {
-    try {
-      await browserInstance.close();
-    } catch (e) {}
+    try { await browserInstance.close(); } catch (e) {}
     browserInstance = null;
   }
 
-  // Close HTTP servers
-  if (sdkHttpServer) {
-    await new Promise(r => sdkHttpServer.close(() => r()));
-  }
-  if (dashboardHttpServer) {
-    await new Promise(r => dashboardHttpServer.close(() => r()));
-  }
+  if (sdkHttpServer) await new Promise(r => sdkHttpServer.close(() => r()));
+  if (dashboardHttpServer) await new Promise(r => dashboardHttpServer.close(() => r()));
 
-  // Close database connection
   db.close();
 
   console.log(`[Worker:${workerId}] Graceful shutdown complete.`);
@@ -689,7 +651,6 @@ async function shutdown(exitCode = 0) {
 process.on('SIGTERM', () => shutdown());
 process.on('SIGINT', () => shutdown());
 
-// Boot the worker
 boot().catch(err => {
   console.error(`[Worker:${workerId}] Boot error:`, err.message);
   shutdown(1);

@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
 
-const numPages = parseInt(process.argv[2], 10) || 10;
+const numCameras = parseInt(process.argv[2], 10) || 10;
 const account = process.argv[3] || "info@enarxi.com";
 const password = process.argv[4] || "Enarxi12345@";
 
@@ -29,7 +29,6 @@ function serveFile(filePath, res) {
   });
 }
 
-// SDK HTTP Server on port 8003
 const server = http.createServer((req, res) => {
   const urlPath = req.url.split('?')[0];
   const filePath = path.join(sdkPath, urlPath === '/' ? 'index.html' : urlPath);
@@ -38,21 +37,13 @@ const server = http.createServer((req, res) => {
 
 function getChromeMemoryWindows(browserPid) {
   return new Promise((resolve) => {
-    // Find all chrome processes launched under our root browser PID or generally
-    // Since Puppeteer launches a specific instance, we can list processes and filter by parent process ID (CommandLine or ParentProcessId)
     const cmd = `powershell -Command "Get-CimInstance Win32_Process -Filter \\"Name = 'chrome.exe'\\" | Select-Object ProcessId, ParentProcessId, @{Name='RAM_MB';Expression={[math]::round($_.WorkingSetSize / 1MB, 2)}} | ConvertTo-Json"`;
-    
     exec(cmd, (err, stdout) => {
-      if (err) {
-        resolve(`Error fetching memory: ${err.message}`);
-        return;
-      }
+      if (err) { resolve(`Error fetching memory: ${err.message}`); return; }
       try {
         const list = JSON.parse(stdout);
         const processes = Array.isArray(list) ? list : [list].filter(x => x);
         
-        // Filter processes that are descendants of our browserPid or browserPid itself
-        // Let's build a map of parent PIDs
         const childPids = new Set([browserPid]);
         let added = true;
         while (added) {
@@ -69,28 +60,20 @@ function getChromeMemoryWindows(browserPid) {
         const totalMemory = myChromeProcs.reduce((sum, p) => sum + p.RAM_MB, 0);
         
         let output = `Active Chrome Processes for this browser instance (Root PID: ${browserPid}):\n`;
-        myChromeProcs.forEach(p => {
-          output += `  PID: ${p.ProcessId} (Parent: ${p.ParentProcessId}) -> ${p.RAM_MB} MB\n`;
-        });
+        myChromeProcs.forEach(p => { output += `  PID: ${p.ProcessId} (Parent: ${p.ParentProcessId}) -> ${p.RAM_MB} MB\n`; });
         output += `Total Memory consumed by this Chrome instance: ${totalMemory.toFixed(2)} MB\n`;
-        output += `Average memory per page (N=${numPages}): ${(totalMemory / numPages).toFixed(2)} MB\n`;
+        output += `Average memory per camera (N=${numCameras}): ${(totalMemory / numCameras).toFixed(2)} MB\n`;
         resolve(output);
-      } catch (e) {
-        resolve(`Raw output from PowerShell:\n${stdout}`);
-      }
+      } catch (e) { resolve(`Raw output from PowerShell:\n${stdout}`); }
     });
   });
 }
 
 function getChromeMemoryLinux(browserPid) {
   return new Promise((resolve) => {
-    // On Linux, use pgrep/ps to find children and sum RSS memory
     const cmd = `ps -o pid,ppid,rss,command -e | grep -E "chrome|chromium"`;
     exec(cmd, (err, stdout) => {
-      if (err) {
-        resolve(`Error fetching memory: ${err.message}`);
-        return;
-      }
+      if (err) { resolve(`Error fetching memory: ${err.message}`); return; }
       resolve(`Raw ps output:\n${stdout}`);
     });
   });
@@ -104,44 +87,117 @@ server.listen(8003, async () => {
     console.log(`[LoadTest] Launching single Puppeteer browser instance...`);
     browser = await puppeteer.launch({
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
+      args: [
+        '--no-sandbox', '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage', '--disable-gpu', '--disable-software-rasterizer',
+        '--disable-extensions', '--disable-background-networking', '--disable-default-apps',
+        '--disable-sync', '--no-first-run', '--no-default-browser-check',
+        '--disable-translate', '--disable-hang-monitor', '--mute-audio',
+        '--disable-audio-output', '--js-flags=--max-old-space-size=64',
+        '--renderer-process-limit=1'
+      ]
     });
 
     const browserPid = browser.process().pid;
     console.log(`[LoadTest] Headless browser launched. PID: ${browserPid}`);
 
-    const pages = [];
+    console.log(`[LoadTest] Creating single shared page...`);
+    const page = await browser.newPage();
+    console.log(`[LoadTest] Page created. Setting up dialog handler...`);
+    page.on('dialog', async (dialog) => { await dialog.accept(); });
+    page.on('console', msg => console.log(`[Browser] ${msg.text()}`));
+    page.on('pageerror', err => console.log(`[Browser Error] ${err.message}`));
+
     
-    for (let i = 0; i < numPages; i++) {
-      console.log(`[LoadTest] Opening page ${i + 1} of ${numPages}...`);
-      const page = await browser.newPage();
-      pages.push(page);
-      
-      // Auto-accept dialogs
-      page.on('dialog', async (dialog) => {
-        await dialog.accept();
-      });
-      
-      await page.goto('http://localhost:8003/', { waitUntil: 'networkidle2' });
-      
-      // Perform login to trigger SDK initialization
-      await page.evaluate((acc, pwd) => {
+    console.log(`[LoadTest] Adding evaluateOnNewDocument stubs...`);
+    // Stub Rendering & Audio
+    await page.evaluateOnNewDocument(() => {
+      window.requestAnimationFrame = (cb) => setTimeout(cb, 1000);
+      window.AudioContext = function() { 
+        const dummyNode = new Proxy({
+          getChannelData: () => new Float32Array(0)
+        }, { 
+          get: (target, prop) => prop in target ? target[prop] : () => dummyNode 
+        });
+        return new Proxy({
+          state: 'running',
+          destination: dummyNode,
+          decodeAudioData: () => Promise.resolve(),
+          close: () => Promise.resolve(),
+          suspend: () => Promise.resolve(),
+          resume: () => Promise.resolve()
+        }, {
+          get: (target, prop) => prop in target ? target[prop] : () => dummyNode
+        });
+      };
+      const originalGetContext = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function(type, ...args) {
+        const ctx = originalGetContext.call(this, type, ...args);
+        if (ctx && type === '2d') { ctx.drawImage = () => {}; ctx.putImageData = () => {}; }
+        return ctx;
+      };
+    });
+
+    console.log(`[LoadTest] Navigating to http://localhost:8003/...`);
+    await page.goto('http://localhost:8003/', { waitUntil: 'networkidle2', timeout: 60000 });
+    
+    console.log(`[LoadTest] Navigation complete. Running login sequence...`);
+    // Login
+    try {
+      await page.evaluate(async (acc, pwd) => {
         document.getElementById('login-account').value = acc;
         document.getElementById('login-password').value = pwd;
         document.getElementById('loginBtn').click();
+        
+        await new Promise((resolve, reject) => {
+          let attempts = 0;
+          const i = setInterval(() => {
+            if (window.access_token) { clearInterval(i); resolve(); }
+            if (++attempts > 40) { clearInterval(i); reject(new Error('Timeout waiting for access_token')); }
+          }, 500);
+        });
+        
+        window.__wsConnections = {};
+        const interval = setInterval(() => {
+          if (window.ConnectApi && window.ConnectApi.onrecvframeex) {
+            window.ConnectApi.onrecvframeex = function () {};
+            clearInterval(interval);
+          }
+        }, 100);
       }, account, password);
+    } catch (err) {
+      console.error('[LoadTest] Login evaluate failed:', err.message);
+      throw err;
+    }
+    console.log(`[LoadTest] Login successful. Shared page is ready.`);
+
+    // Simulate connecting cameras sequentially
+    for (let i = 0; i < numCameras; i++) {
+      const simulatedDeviceId = `simulated_cam_${i}`;
+      console.log(`[LoadTest] Connecting simulated camera ${i + 1} of ${numCameras} (${simulatedDeviceId})...`);
       
-      // Wait for login processing to complete
+      await page.evaluate((devId) => {
+        // Just call the SDK to create a session.
+        // We pass fake credentials and IP, but this forces the SDK to allocate decoder structures.
+        if (window.Player && window.Player.ConnectDevice) {
+           window.Player.ConnectDevice(devId, "127.0.0.1", "admin", "fake_password", 0, 80, 0, 0, 1, "wss", null);
+        }
+      }, simulatedDeviceId);
+      
+      // Wait to prevent massive CPU spike
       await new Promise(r => setTimeout(r, 1000));
-      
-      console.log(`[LoadTest] Page ${i + 1} initialized.`);
     }
 
-    console.log(`\n[LoadTest] All ${numPages} pages initialized. Waiting 10 seconds for memory to settle...`);
-    await new Promise(r => setTimeout(r, 10000));
+    console.log(`\n[LoadTest] All ${numCameras} cameras connecting in one page. Waiting 15 seconds for memory to settle...`);
+    await new Promise(r => setTimeout(r, 15000));
 
     console.log(`\n[LoadTest] Measuring memory usage...`);
     let memoryReport = '';
+    
+    // Check detailed metrics from Puppeteer
+    const metrics = await page.metrics();
+    console.log(`[Puppeteer Page Metrics] JSHeapUsedSize: ${(metrics.JSHeapUsedSize / 1048576).toFixed(2)} MB`);
+
     if (process.platform === 'win32') {
       memoryReport = await getChromeMemoryWindows(browserPid);
     } else {

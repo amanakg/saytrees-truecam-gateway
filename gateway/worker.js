@@ -169,7 +169,20 @@ class AccountPage {
           window.requestAnimationFrame = (cb) => setTimeout(cb, 1000);
           window.cancelAnimationFrame = () => {};
 
-          window.AudioContext = function() { return { createMediaStreamSource: () => ({}), close: () => {} }; };
+          window.AudioContext = function() { 
+            return { 
+              createMediaStreamSource: () => ({ connect: () => {} }), 
+              createGain: () => ({ connect: () => {}, gain: { value: 1 } }),
+              createScriptProcessor: () => ({ connect: () => {}, disconnect: () => {}, onaudioprocess: null }),
+              createBufferSource: () => ({ connect: () => {}, start: () => {}, stop: () => {} }),
+              createAnalyser: () => ({ connect: () => {} }),
+              decodeAudioData: () => Promise.resolve(),
+              resume: () => Promise.resolve(),
+              suspend: () => Promise.resolve(),
+              close: () => Promise.resolve(),
+              destination: {}
+            }; 
+          };
           window.webkitAudioContext = window.AudioContext;
           window.RTCPeerConnection = null;
           window.RTCSessionDescription = null;

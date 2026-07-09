@@ -514,20 +514,25 @@ class CameraBridge {
         ws.binaryType = 'arraybuffer';
         window.__wsConnections[devId] = ws;
 
-        ws.onopen = () => {
-          // Send connect command to SDK
+        return new Promise((resolve, reject) => {
+          window.onResolv = (deviceId, mqtt_ipv4, mqtt_ipv6, mqtt_port, mqtts_port, ws_port, wss_port, mqttDomain) => {
+            resolve();
+          };
+
           setTimeout(() => {
-             // arguments: devid, ip, user, pwd, winindex, port, connectType, channel, streamid, wss, cb
-             window.Player.ConnectDevice(devId, "", "admin", devSecret, 0, 80, 0, 0, 1, "wss", window.onResolv);
-             
-             // The SDK's openvideo/play function automatically starts pulling frames after ConnectDevice finishes
-             setTimeout(() => {
-                if (window.Player && window.Player.OpenStream) {
-                  window.Player.OpenStream(devId, "", 0, 1, 0);
-                }
-             }, 3000);
-          }, 500);
-        };
+             if (typeof Player !== 'undefined' && Player.ConnectDevice) {
+               Player.ConnectDevice(devId, "", "admin", devSecret, 0, 80, 0, 0, 1, "wss", window.onResolv);
+               
+               setTimeout(() => {
+                  if (typeof Player !== 'undefined' && Player.OpenStream) {
+                    Player.OpenStream(devId, "", 0, 1, 0);
+                  }
+               }, 2000);
+             } else {
+               resolve(); // Fail safely
+             }
+          }, 1000);
+        });
       }, this.deviceId, this.deviceSecret, this.wsPort);
 
     } catch (err) {
@@ -552,8 +557,8 @@ class CameraBridge {
         if (window.__wsConnections && window.__wsConnections[devId]) {
           try { window.__wsConnections[devId].close(); } catch(e) {}
         }
-        if (window.Player && window.Player.DisConnectDevice) {
-          try { window.Player.DisConnectDevice(devId); } catch(e) {}
+        if (typeof Player !== 'undefined' && Player.DisConnectDevice) {
+          try { Player.DisConnectDevice(devId); } catch(e) {}
         }
       }, this.deviceId);
     } catch(e) {}

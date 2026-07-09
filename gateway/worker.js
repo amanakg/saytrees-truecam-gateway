@@ -517,6 +517,13 @@ class CameraBridge {
         ws.onopen = () => {
           setTimeout(() => {
              if (typeof Player !== 'undefined' && Player.ConnectDevice) {
+               // Inject the credentials into the DOM for toConnectMqtt to read
+               const devSelect = document.getElementById("dev_id");
+               if (devSelect) {
+                 devSelect.innerHTML = `<option value="fake:${devId}:${devSecret}">fake</option>`;
+                 devSelect.value = `fake:${devId}:${devSecret}`;
+               }
+
                Player.ConnectDevice(devId, "", "admin", devSecret, 0, 80, 0, 0, 1, "wss", window.onResolv);
                
                setTimeout(() => {
@@ -597,6 +604,7 @@ async function boot() {
       '--no-sandbox', 
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
+      '--disable-web-security',
       '--disable-gpu',
       '--disable-software-rasterizer',
       '--disable-extensions',

@@ -170,18 +170,28 @@ class AccountPage {
           window.cancelAnimationFrame = () => {};
 
           window.AudioContext = function() { 
-            return { 
+            const stub = { 
               createMediaStreamSource: () => ({ connect: () => {} }), 
               createGain: () => ({ connect: () => {}, gain: { value: 1 } }),
               createScriptProcessor: () => ({ connect: () => {}, disconnect: () => {}, onaudioprocess: null }),
               createBufferSource: () => ({ connect: () => {}, start: () => {}, stop: () => {} }),
               createAnalyser: () => ({ connect: () => {} }),
+              createBuffer: () => ({ duration: 0, length: 0, sampleRate: 44100, getChannelData: () => new Float32Array(0) }),
               decodeAudioData: () => Promise.resolve(),
               resume: () => Promise.resolve(),
               suspend: () => Promise.resolve(),
               close: () => Promise.resolve(),
               destination: {}
             }; 
+            return new Proxy(stub, {
+              get(target, prop) {
+                if (prop in target) return target[prop];
+                if (typeof prop === 'string' && prop.startsWith('create')) {
+                   return () => ({ connect: () => {} });
+                }
+                return undefined;
+              }
+            });
           };
           window.webkitAudioContext = window.AudioContext;
           window.RTCPeerConnection = null;

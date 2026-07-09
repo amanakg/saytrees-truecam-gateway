@@ -514,11 +514,7 @@ class CameraBridge {
         ws.binaryType = 'arraybuffer';
         window.__wsConnections[devId] = ws;
 
-        return new Promise((resolve, reject) => {
-          window.onResolv = (deviceId, mqtt_ipv4, mqtt_ipv6, mqtt_port, mqtts_port, ws_port, wss_port, mqttDomain) => {
-            resolve();
-          };
-
+        ws.onopen = () => {
           setTimeout(() => {
              if (typeof Player !== 'undefined' && Player.ConnectDevice) {
                Player.ConnectDevice(devId, "", "admin", devSecret, 0, 80, 0, 0, 1, "wss", window.onResolv);
@@ -527,12 +523,10 @@ class CameraBridge {
                   if (typeof Player !== 'undefined' && Player.OpenStream) {
                     Player.OpenStream(devId, "", 0, 1, 0);
                   }
-               }, 2000);
-             } else {
-               resolve(); // Fail safely
+               }, 3000);
              }
-          }, 1000);
-        });
+          }, 500);
+        };
       }, this.deviceId, this.deviceSecret, this.wsPort);
 
     } catch (err) {

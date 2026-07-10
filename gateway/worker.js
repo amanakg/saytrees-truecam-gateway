@@ -31,25 +31,25 @@ if (!fs.existsSync(sdkPath)) {
 const dashboardPath = path.join(__dirname, '..', 'dashboard');
 
 // Helper to serve files
-function serveFile(filePath, res) {
+function serveFile(filePath, res, isSdk = false) {
   fs.readFile(filePath, (err, content) => {
     if (err) {
-      res.writeHead(404, { 'Content-Type': 'text/plain' });
-      res.end('404 Not Found');
-      return;
+      res.writeHead(404);
+      return res.end('File not found');
     }
-    let contentType = 'text/html';
     const ext = path.extname(filePath);
+    let contentType = 'text/html';
     if (ext === '.js') contentType = 'application/javascript';
     else if (ext === '.css') contentType = 'text/css';
     else if (ext === '.wasm') contentType = 'application/wasm';
-    else if (ext === '.json') contentType = 'application/json';
-    res.writeHead(200, { 
-      'Content-Type': contentType, 
-      'Access-Control-Allow-Origin': '*',
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'require-corp'
-    });
+    
+    const headers = { 'Content-Type': contentType };
+    if (isSdk) {
+      headers['Cross-Origin-Opener-Policy'] = 'same-origin';
+      headers['Cross-Origin-Embedder-Policy'] = 'require-corp';
+    }
+    
+    res.writeHead(200, headers);
     res.end(content);
   });
 }
@@ -62,7 +62,7 @@ function startHttpServers() {
   sdkHttpServer = http.createServer((req, res) => {
     const urlPath = req.url.split('?')[0];
     const filePath = path.join(sdkPath, urlPath === '/' ? 'index.html' : urlPath);
-    serveFile(filePath, res);
+    serveFile(filePath, res, true);
   });
 
   sdkHttpServer.on('error', (err) => {
@@ -454,16 +454,20 @@ class CameraBridge {
         
         // Spawn dummy FFmpeg load generator for testing
         this.killFfmpeg();
-        const ffmpegArgs = [
-          '-rtsp_transport', 'tcp',
-          '-i', 'rtsp://127.0.0.1:8554/live/devcamera1_hd',
-          '-c:v', 'copy',
-          '-f', 'rtsp',
-          '-rtsp_transport', 'tcp',
-          this.streamUrl
-        ];
-        this.ffmpegProcess = spawn('ffmpeg', ffmpegArgs);
-        this.ffmpegProcess.stderr.on('data', () => {}); // Ignore output to prevent spam
+        
+        // Delay mock spawn by 20 seconds to wait for real camera to publish first
+        setTimeout(() => {
+          const ffmpegArgs = [
+            '-rtsp_transport', 'tcp',
+            '-i', 'rtsp://127.0.0.1:8554/live/devcamera1_hd',
+            '-c:v', 'copy',
+            '-f', 'rtsp',
+            '-rtsp_transport', 'tcp',
+            this.streamUrl
+          ];
+          this.ffmpegProcess = spawn('ffmpeg', ffmpegArgs);
+          this.ffmpegProcess.stderr.on('data', () => {}); // Ignore output to prevent spam
+        }, 20000);
         return;
       }
 

@@ -346,7 +346,9 @@ class CameraBridge {
 
     const ffmpegArgs = [
       '-y',
-      '-fflags', '+genpts+discardcorrupt',
+      '-fflags', '+genpts+discardcorrupt+nobuffer',
+      '-flags', 'low_delay',
+      '-strict', 'experimental',
       '-use_wallclock_as_timestamps', '1',
       '-analyzeduration', '0',
       '-probesize', '32',
@@ -439,6 +441,8 @@ class CameraBridge {
         // Delay mock spawn by 20 seconds to wait for real camera to publish first
         setTimeout(() => {
           const ffmpegArgs = [
+            '-fflags', 'nobuffer',
+            '-flags', 'low_delay',
             '-rtsp_transport', 'tcp',
             '-i', 'rtsp://127.0.0.1:8554/live/devcamera1_hd',
             '-c:v', 'copy',

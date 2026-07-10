@@ -162,54 +162,6 @@ class AccountPage {
         console.error(`[Browser Error] ${err.toString()}`);
       });
 
-      await this.page.evaluateOnNewDocument(() => {
-        // Optimize Memory & CPU: Stub out rendering and audio
-        try {
-          window.requestAnimationFrame = (cb) => setTimeout(cb, 1000);
-          window.cancelAnimationFrame = () => { };
-
-          window.AudioContext = function () {
-            const stub = {
-              createMediaStreamSource: () => ({ connect: () => { } }),
-              createGain: () => ({ connect: () => { }, gain: { value: 1 } }),
-              createScriptProcessor: () => ({ connect: () => { }, disconnect: () => { }, onaudioprocess: null }),
-              createBufferSource: () => ({ connect: () => { }, start: () => { }, stop: () => { } }),
-              createAnalyser: () => ({ connect: () => { } }),
-              createBuffer: () => ({ duration: 0, length: 0, sampleRate: 44100, getChannelData: () => new Float32Array(0) }),
-              decodeAudioData: () => Promise.resolve(),
-              resume: () => Promise.resolve(),
-              suspend: () => Promise.resolve(),
-              close: () => Promise.resolve(),
-              destination: {}
-            };
-            return new Proxy(stub, {
-              get(target, prop) {
-                if (prop in target) return target[prop];
-                if (typeof prop === 'string' && prop.startsWith('create')) {
-                  return () => ({ connect: () => { } });
-                }
-                return undefined;
-              }
-            });
-          };
-          window.webkitAudioContext = window.AudioContext;
-
-          const originalGetContext = HTMLCanvasElement.prototype.getContext;
-          HTMLCanvasElement.prototype.getContext = function (type, ...args) {
-            const ctx = originalGetContext.call(this, type, ...args);
-            if (ctx) {
-              if (type === '2d') {
-                ctx.drawImage = () => { };
-                ctx.putImageData = () => { };
-              } else if (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl') {
-                ctx.drawArrays = () => { };
-                ctx.drawElements = () => { };
-              }
-            }
-            return ctx;
-          };
-        } catch (e) { }
-      });
 
       await this.page.goto('http://localhost:8000/', { waitUntil: 'networkidle2' });
 

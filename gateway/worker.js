@@ -44,7 +44,12 @@ function serveFile(filePath, res) {
     else if (ext === '.css') contentType = 'text/css';
     else if (ext === '.wasm') contentType = 'application/wasm';
     else if (ext === '.json') contentType = 'application/json';
-    res.writeHead(200, { 'Content-Type': contentType, 'Access-Control-Allow-Origin': '*' });
+    res.writeHead(200, { 
+      'Content-Type': contentType, 
+      'Access-Control-Allow-Origin': '*',
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp'
+    });
     res.end(content);
   });
 }
@@ -559,7 +564,6 @@ async function boot() {
       '--disable-web-security',
       '--disable-gpu',
       '--disable-extensions',
-      '--disable-background-networking',
       '--disable-default-apps',
       '--disable-sync',
       '--no-first-run',

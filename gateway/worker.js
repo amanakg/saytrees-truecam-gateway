@@ -620,7 +620,8 @@ async function boot() {
       '--mute-audio',
       '--disable-audio-output',
       '--js-flags=--max-old-space-size=64',
-      '--renderer-process-limit=1'
+      '--renderer-process-limit=1',
+      '--autoplay-policy=no-user-gesture-required'
     ]
   });
 

@@ -487,11 +487,11 @@ class CameraBridge {
                 return;
               }
 
-              Player.ConnectDevice(formattedDevId, "", "admin", devSecret, 0, 80, 0, 0, 0, "wss", window.onResolv);
+              Player.ConnectDevice(formattedDevId, "", "admin", devSecret, 0, 80, 0, 0, 1, "wss", window.onResolv);
 
               setTimeout(() => {
                 if (typeof Player !== 'undefined' && Player.OpenStream) {
-                  Player.OpenStream(devId, "", 0, 0, 0);
+                  Player.OpenStream(devId, "", 0, 1, 0);
                 }
               }, 3000);
             }

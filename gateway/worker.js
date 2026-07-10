@@ -4,7 +4,6 @@
 
 const ws = require('ws');
 const { spawn } = require('child_process');
-const puppeteer = require('puppeteer');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -41,8 +40,8 @@ function serveFile(filePath, res) {
     }
     let contentType = 'text/html';
     const ext = path.extname(filePath);
-    if (ext === '.js')   contentType = 'application/javascript';
-    else if (ext === '.css')  contentType = 'text/css';
+    if (ext === '.js') contentType = 'application/javascript';
+    else if (ext === '.css') contentType = 'text/css';
     else if (ext === '.wasm') contentType = 'application/wasm';
     else if (ext === '.json') contentType = 'application/json';
     res.writeHead(200, { 'Content-Type': contentType, 'Access-Control-Allow-Origin': '*' });
@@ -60,7 +59,7 @@ function startHttpServers() {
     const filePath = path.join(sdkPath, urlPath === '/' ? 'index.html' : urlPath);
     serveFile(filePath, res);
   });
-  
+
   sdkHttpServer.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
       console.log(`[Worker:${workerId}] Port 8000 already in use, assuming another worker is serving SDK static files.`);
@@ -114,7 +113,7 @@ function getFfmpegPath() {
         if (fs.existsSync(binPath)) return binPath;
       }
     }
-  } catch (e) {}
+  } catch (e) { }
 
   return 'ffmpeg';
 }
@@ -151,7 +150,7 @@ class AccountPage {
     console.log(`[AccountPage:${this.accountEmail}] Initializing shared page...`);
     try {
       this.page = await this.browser.newPage();
-      
+
       this.page.on('dialog', async (dialog) => {
         await dialog.accept();
       });
@@ -167,27 +166,27 @@ class AccountPage {
         // Optimize Memory & CPU: Stub out rendering and audio
         try {
           window.requestAnimationFrame = (cb) => setTimeout(cb, 1000);
-          window.cancelAnimationFrame = () => {};
+          window.cancelAnimationFrame = () => { };
 
-          window.AudioContext = function() { 
-            const stub = { 
-              createMediaStreamSource: () => ({ connect: () => {} }), 
-              createGain: () => ({ connect: () => {}, gain: { value: 1 } }),
-              createScriptProcessor: () => ({ connect: () => {}, disconnect: () => {}, onaudioprocess: null }),
-              createBufferSource: () => ({ connect: () => {}, start: () => {}, stop: () => {} }),
-              createAnalyser: () => ({ connect: () => {} }),
+          window.AudioContext = function () {
+            const stub = {
+              createMediaStreamSource: () => ({ connect: () => { } }),
+              createGain: () => ({ connect: () => { }, gain: { value: 1 } }),
+              createScriptProcessor: () => ({ connect: () => { }, disconnect: () => { }, onaudioprocess: null }),
+              createBufferSource: () => ({ connect: () => { }, start: () => { }, stop: () => { } }),
+              createAnalyser: () => ({ connect: () => { } }),
               createBuffer: () => ({ duration: 0, length: 0, sampleRate: 44100, getChannelData: () => new Float32Array(0) }),
               decodeAudioData: () => Promise.resolve(),
               resume: () => Promise.resolve(),
               suspend: () => Promise.resolve(),
               close: () => Promise.resolve(),
               destination: {}
-            }; 
+            };
             return new Proxy(stub, {
               get(target, prop) {
                 if (prop in target) return target[prop];
                 if (typeof prop === 'string' && prop.startsWith('create')) {
-                   return () => ({ connect: () => {} });
+                  return () => ({ connect: () => { } });
                 }
                 return undefined;
               }
@@ -198,30 +197,30 @@ class AccountPage {
           window.RTCSessionDescription = null;
 
           const originalGetContext = HTMLCanvasElement.prototype.getContext;
-          HTMLCanvasElement.prototype.getContext = function(type, ...args) {
+          HTMLCanvasElement.prototype.getContext = function (type, ...args) {
             const ctx = originalGetContext.call(this, type, ...args);
             if (ctx) {
               if (type === '2d') {
-                ctx.drawImage = () => {};
-                ctx.putImageData = () => {};
+                ctx.drawImage = () => { };
+                ctx.putImageData = () => { };
               } else if (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl') {
-                ctx.drawArrays = () => {};
-                ctx.drawElements = () => {};
+                ctx.drawArrays = () => { };
+                ctx.drawElements = () => { };
               }
             }
             return ctx;
           };
-        } catch (e) {}
+        } catch (e) { }
       });
 
       await this.page.goto('http://localhost:8000/', { waitUntil: 'networkidle2' });
-      
+
       console.log(`[AccountPage:${this.accountEmail}] Running login sequence...`);
       await this.page.evaluate(async (acc, pwd) => {
         document.getElementById('login-account').value = acc;
         document.getElementById('login-password').value = pwd;
         document.getElementById('loginBtn').click();
-        
+
         await new Promise((resolve) => {
           const interval = setInterval(() => {
             if (window.access_token) {
@@ -230,7 +229,7 @@ class AccountPage {
             }
           }, 500);
         });
-        
+
         // Wait for device list to load as a sign of full SDK readiness
         let loaded = false;
         while (!loaded) {
@@ -244,7 +243,7 @@ class AccountPage {
 
         // Install Global Multiplexed Interceptor
         window.__wsConnections = window.__wsConnections || {};
-        
+
         const interceptorInterval = setInterval(() => {
           if (window.ConnectApi && window.ConnectApi.onrecvframeex && !window.ConnectApi.onrecvframeex.toString().includes('__wsConnections')) {
             const original = window.ConnectApi.onrecvframeex;
@@ -284,7 +283,7 @@ class AccountPage {
 
   async close() {
     if (this.page) {
-      try { await this.page.close(); } catch (e) {}
+      try { await this.page.close(); } catch (e) { }
     }
     this.isReady = false;
   }
@@ -324,7 +323,7 @@ class CameraBridge {
   async start() {
     this.log('Starting bridge controller...');
     db.updateStatus(this.deviceId, 'connecting');
-    
+
     this.setupWebSocketServer();
     await this.connectCameraInPage();
   }
@@ -348,7 +347,7 @@ class CameraBridge {
           this.warn(`Stream idle for ${idleTime / 1000}s. Triggering reconnect...`);
           clearInterval(this.watchdogInterval);
           this.watchdogInterval = null;
-          
+
           this.killFfmpeg();
           this.triggerReconnect();
         }
@@ -376,7 +375,7 @@ class CameraBridge {
               db.updateMetadata(this.deviceId, codec, resolution, fps);
               this.startFfmpeg(initData);
             }
-          } catch (e) {}
+          } catch (e) { }
           return;
         }
 
@@ -406,7 +405,7 @@ class CameraBridge {
     this.killFfmpeg();
     const isH265 = initData.enc && (initData.enc.includes('265') || initData.enc.includes('hevc'));
     const inputFormat = isH265 ? 'hevc' : 'h264';
-    
+
     this.log(`Launching FFmpeg with format: ${inputFormat} -> RTSP: ${this.streamUrl}`);
 
     const ffmpegArgs = [
@@ -458,7 +457,7 @@ class CameraBridge {
       try {
         this.ffmpegProcess.stdin.end();
         this.ffmpegProcess.kill('SIGKILL');
-      } catch (e) {}
+      } catch (e) { }
       this.ffmpegProcess = null;
     }
   }
@@ -495,17 +494,17 @@ class CameraBridge {
   async connectCameraInPage() {
     try {
       const page = await this.accountManager.getReadyPage();
-      
+
       this.log('Injecting connection command into shared page...');
       await page.evaluate((devId, devSecret, wsPort) => {
         window.__wsConnections = window.__wsConnections || {};
-        
+
         // Clean up previous connection for this device
         if (window.__wsConnections[devId]) {
-          try { window.__wsConnections[devId].close(); } catch(e) {}
+          try { window.__wsConnections[devId].close(); } catch (e) { }
         }
         if (window.Player && window.Player.DisConnectDevice) {
-          try { window.Player.DisConnectDevice(devId); } catch(e) {}
+          try { window.Player.DisConnectDevice(devId); } catch (e) { }
         }
 
         // Establish WS pipe for frames
@@ -516,22 +515,22 @@ class CameraBridge {
 
         ws.onopen = () => {
           setTimeout(() => {
-             if (typeof Player !== 'undefined' && Player.ConnectDevice) {
-               // Inject the credentials into the DOM for toConnectMqtt to read
-               const devSelect = document.getElementById("dev_id");
-               if (devSelect) {
-                 devSelect.innerHTML = `<option value="fake:${devId}:${devSecret}">fake</option>`;
-                 devSelect.value = `fake:${devId}:${devSecret}`;
-               }
+            if (typeof Player !== 'undefined' && Player.ConnectDevice) {
+              // Inject the credentials into the DOM for toConnectMqtt to read
+              const devSelect = document.getElementById("dev_id");
+              if (devSelect) {
+                devSelect.innerHTML = `<option value="fake:${devId}:${devSecret}">fake</option>`;
+                devSelect.value = `fake:${devId}:${devSecret}`;
+              }
 
-               Player.ConnectDevice(devId, "", "admin", devSecret, 0, 80, 0, 0, 1, "wss", window.onResolv);
-               
-               setTimeout(() => {
-                  if (typeof Player !== 'undefined' && Player.OpenStream) {
-                    Player.OpenStream(devId, "", 0, 1, 0);
-                  }
-               }, 3000);
-             }
+              Player.ConnectDevice(devId, "", "admin", devSecret, 0, 80, 0, 0, 1, "wss", window.onResolv);
+
+              setTimeout(() => {
+                if (typeof Player !== 'undefined' && Player.OpenStream) {
+                  Player.OpenStream(devId, "", 0, 1, 0);
+                }
+              }, 3000);
+            }
           }, 500);
         };
       }, this.deviceId, this.deviceSecret, this.wsPort);
@@ -556,13 +555,13 @@ class CameraBridge {
       const page = await this.accountManager.getReadyPage();
       await page.evaluate((devId) => {
         if (window.__wsConnections && window.__wsConnections[devId]) {
-          try { window.__wsConnections[devId].close(); } catch(e) {}
+          try { window.__wsConnections[devId].close(); } catch (e) { }
         }
         if (typeof Player !== 'undefined' && Player.DisConnectDevice) {
-          try { Player.DisConnectDevice(devId); } catch(e) {}
+          try { Player.DisConnectDevice(devId); } catch (e) { }
         }
       }, this.deviceId);
-    } catch(e) {}
+    } catch (e) { }
 
     if (this.wss) {
       await new Promise((resolve) => this.wss.close(() => resolve()));
@@ -598,10 +597,13 @@ async function boot() {
   startHttpServers();
 
   console.log(`[Worker:${workerId}] Launching shared Puppeteer browser with memory optimizations...`);
+  const puppeteerModule = await import('puppeteer');
+  const puppeteer = puppeteerModule.default || puppeteerModule;
+  
   browserInstance = await puppeteer.launch({
     headless: true,
     args: [
-      '--no-sandbox', 
+      '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-web-security',
@@ -641,7 +643,7 @@ async function boot() {
 
     const bridge = new CameraBridge(device, wsPort, accountPage);
     activeBridges.push(bridge);
-    
+
     bridge.start().catch(err => {
       console.error(`[Worker:${workerId}] Error starting camera bridge ${device.device_id}:`, err.message);
     });
@@ -657,15 +659,15 @@ async function shutdown(exitCode = 0) {
   console.log(`[Worker:${workerId}] Shutting down resources gracefully...`);
 
   for (const bridge of activeBridges) {
-    try { await bridge.stop(); } catch (e) {}
+    try { await bridge.stop(); } catch (e) { }
   }
-  
+
   for (const [email, accountPage] of accountPages) {
-    try { await accountPage.close(); } catch (e) {}
+    try { await accountPage.close(); } catch (e) { }
   }
 
   if (browserInstance) {
-    try { await browserInstance.close(); } catch (e) {}
+    try { await browserInstance.close(); } catch (e) { }
     browserInstance = null;
   }
 

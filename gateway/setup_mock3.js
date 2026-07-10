@@ -1,30 +1,33 @@
 const db = require('./registry/db');
 
-// Ensure devcamera1_hd is present
-const restoreStmt = db.db.prepare(`
-  INSERT OR REPLACE INTO devices (
+// 1. Wipe the entire devices table to ensure no phantom/old cameras jam the worker
+db.db.prepare("DELETE FROM devices").run();
+
+// 2. Restore ONLY the correct, active physical camera
+const insertStmt = db.db.prepare(`
+  INSERT INTO devices (
     device_id, device_secret, nickname, client_id, site_name, stream_name, 
     ingest_tier, account_email, account_password_ref, worker_id, status
   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
-restoreStmt.run(
-  '367ABDWN1000346168', '08ce8ae8a9e468d2313c03c9e058a3c2', 'Enarxi_Cam1', 
-  'enarxi', 'General Site', 'devcamera1_hd', 'bridge', 
-  'info@enarxi.com', 'Enarxi12345@', 'worker1', 'offline'
+insertStmt.run(
+  '367ABDWN1000346168', 
+  '08ce8ae8a9e468d2313c03c9e058a3c2', 
+  'Office Camera', 
+  'enarxi', 
+  'General Site', 
+  'devcamera1_hd', 
+  'bridge', 
+  'info@enarxi.com', 
+  'Enarxi12345@', 
+  'worker1', 
+  'offline'
 );
-console.log('[Setup] Verified Enarxi_Cam1 (devcamera1_hd)');
 
-// Add 3 mock cameras
-const insertMock = db.db.prepare(`
-  INSERT OR REPLACE INTO devices (
-    device_id, device_secret, nickname, client_id, site_name, stream_name, 
-    ingest_tier, account_email, account_password_ref, worker_id, status
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`);
-
+// 3. Create exactly 3 mock cameras
 for (let i = 1; i <= 3; i++) {
-  insertMock.run(
+  insertStmt.run(
     `MOCK_CAM_${i}`, 
     '08ce8ae8a9e468d2313c03c9e058a3c2', 
     `Simulated_Cam_${i}`, 
@@ -35,7 +38,8 @@ for (let i = 1; i <= 3; i++) {
     'info@enarxi.com', 
     'Enarxi12345@', 
     'worker1', 
-    'offline'
+    'online'
   );
 }
-console.log('[Setup] Added 3 Mock Cameras (mock_cam_1, mock_cam_2, mock_cam_3)');
+
+console.log("Database wiped clean and reset: EXACTLY 1 Real Camera + 3 Mock Cameras.");

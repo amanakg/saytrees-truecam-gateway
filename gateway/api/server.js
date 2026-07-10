@@ -2,11 +2,16 @@
 // Tenant-scoped HTTP API for Truecam Portal embedding
 
 const express = require('express');
+const path = require('path');
 const db = require('../registry/db');
 const app = express();
 const port = process.env.API_PORT || 3000;
 
 app.use(express.json());
+
+// Serve the dashboard statically on Port 3000 (bypassing firewall block on 9000)
+app.use(express.static(path.join(__dirname, '..', 'dashboard')));
+
 
 // Enable CORS for dashboard integration
 app.use((req, res, next) => {

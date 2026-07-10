@@ -10,7 +10,7 @@ const port = process.env.API_PORT || 3000;
 app.use(express.json());
 
 // Serve the dashboard statically on Port 3000 (bypassing firewall block on 9000)
-app.use(express.static(path.join(__dirname, '..', 'dashboard')));
+app.use(express.static(path.join(__dirname, '..', '..', 'dashboard')));
 
 
 // Enable CORS for dashboard integration

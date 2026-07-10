@@ -21,7 +21,7 @@ insertStmt.run(
   'bridge', 
   'afzal.basha@goldbharat.com', 
   'default', 
-  '1', 
+  'worker1', 
   'offline'
 );
 
@@ -37,7 +37,7 @@ for (let i = 1; i <= 2; i++) {
     'bridge', 
     'afzal.basha@goldbharat.com', 
     'default', 
-    '1', 
+    'worker1', 
     'online'
   );
 }

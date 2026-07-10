@@ -193,8 +193,6 @@ class AccountPage {
             });
           };
           window.webkitAudioContext = window.AudioContext;
-          window.RTCPeerConnection = null;
-          window.RTCSessionDescription = null;
 
           const originalGetContext = HTMLCanvasElement.prototype.getContext;
           HTMLCanvasElement.prototype.getContext = function (type, ...args) {

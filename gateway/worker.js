@@ -455,10 +455,9 @@ class CameraBridge {
         // Spawn dummy FFmpeg load generator for testing
         this.killFfmpeg();
         const ffmpegArgs = [
-          '-re',
-          '-f', 'lavfi',
-          '-i', 'testsrc=size=1920x1080:rate=15',
-          '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency', '-crf', '28',
+          '-rtsp_transport', 'tcp',
+          '-i', 'rtsp://127.0.0.1:8554/live/devcamera1_hd',
+          '-c:v', 'copy',
           '-f', 'rtsp',
           '-rtsp_transport', 'tcp',
           this.streamUrl

@@ -56,7 +56,6 @@ function serveFile(filePath, res, isSdk = false) {
 
 // Global servers - only bind if not already running on host
 let sdkHttpServer = null;
-let dashboardHttpServer = null;
 
 function startHttpServers() {
   sdkHttpServer = http.createServer((req, res) => {
@@ -74,25 +73,7 @@ function startHttpServers() {
   });
 
   sdkHttpServer.listen(8000, () => {
-    console.log(`[Worker:${workerId}] SDK HTTP server running on port 8000`);
-  });
-
-  dashboardHttpServer = http.createServer((req, res) => {
-    const urlPath = req.url.split('?')[0];
-    const filePath = path.join(dashboardPath, urlPath === '/' ? 'index.html' : urlPath);
-    serveFile(filePath, res);
-  });
-
-  dashboardHttpServer.on('error', (err) => {
-    if (err.code === 'EADDRINUSE') {
-      console.log(`[Worker:${workerId}] Port 9000 already in use, assuming another worker is serving Dashboard.`);
-    } else {
-      console.error(`[Worker:${workerId}] Dashboard Server error:`, err.message);
-    }
-  });
-
-  dashboardHttpServer.listen(9000, () => {
-    console.log(`[Worker:${workerId}] Dashboard served at http://localhost:9000/`);
+    console.log(`[Worker:${workerId}] Web SDK served at http://localhost:8000/`);
   });
 }
 

@@ -452,6 +452,18 @@ class CameraBridge {
           ];
           this.ffmpegProcess = spawn('ffmpeg', ffmpegArgs);
           this.ffmpegProcess.stderr.on('data', () => {}); // Ignore output to prevent spam
+          
+          this.ffmpegProcess.on('error', (err) => {
+            this.error(`Mock FFmpeg error: ${err.message}`);
+            this.ffmpegProcess = null;
+            this.triggerReconnect();
+          });
+          
+          this.ffmpegProcess.on('close', (code) => {
+            this.warn(`Mock FFmpeg exited (code=${code}), retrying...`);
+            this.ffmpegProcess = null;
+            this.triggerReconnect();
+          });
         }, 20000);
         return;
       }

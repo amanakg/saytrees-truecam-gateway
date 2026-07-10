@@ -371,7 +371,7 @@ class CameraBridge {
       '-probesize', '32',
       '-f', inputFormat,
       '-i', 'pipe:0',
-      '-c:v', 'copy',
+      ...(isH265 ? ['-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency', '-crf', '28'] : ['-c:v', 'copy']),
       '-max_muxing_queue_size', '1024',
       '-f', 'rtsp',
       '-rtsp_transport', 'tcp',

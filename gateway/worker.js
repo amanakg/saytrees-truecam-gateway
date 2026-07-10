@@ -471,14 +471,22 @@ class CameraBridge {
         ws.onopen = () => {
           setTimeout(() => {
             if (typeof Player !== 'undefined' && Player.ConnectDevice) {
-              // Inject the credentials into the DOM for toConnectMqtt to read
               const devSelect = document.getElementById("dev_id");
+              let formattedDevId = "";
               if (devSelect) {
-                devSelect.innerHTML = `<option value="fake:${devId}:${devSecret}">fake</option>`;
-                devSelect.value = `fake:${devId}:${devSecret}`;
+                for (let i = 0; i < devSelect.options.length; i++) {
+                  if (devSelect.options[i].text === devId) {
+                    devSelect.value = devSelect.options[i].value;
+                    formattedDevId = devSelect.options[i].value;
+                    break;
+                  }
+                }
+              }
+              if (!formattedDevId) {
+                console.log("[Browser] ERROR: devId not found in dropdown list!");
+                return;
               }
 
-              const formattedDevId = `fake:${devId}:${devSecret}`;
               Player.ConnectDevice(formattedDevId, "", "admin", devSecret, 0, 80, 0, 0, 1, "wss", window.onResolv);
 
               setTimeout(() => {

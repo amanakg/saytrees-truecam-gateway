@@ -608,7 +608,6 @@ async function boot() {
       '--disable-dev-shm-usage',
       '--disable-web-security',
       '--disable-gpu',
-      '--disable-software-rasterizer',
       '--disable-extensions',
       '--disable-background-networking',
       '--disable-default-apps',

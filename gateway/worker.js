@@ -478,7 +478,8 @@ class CameraBridge {
                 devSelect.value = `fake:${devId}:${devSecret}`;
               }
 
-              Player.ConnectDevice(devId, "", "admin", devSecret, 0, 80, 0, 0, 1, "wss", window.onResolv);
+              const formattedDevId = `fake:${devId}:${devSecret}`;
+              Player.ConnectDevice(formattedDevId, "", "admin", devSecret, 0, 80, 0, 0, 1, "wss", window.onResolv);
 
               setTimeout(() => {
                 if (typeof Player !== 'undefined' && Player.OpenStream) {
@@ -570,6 +571,9 @@ async function boot() {
       '--no-default-browser-check',
       '--disable-translate',
       '--disable-hang-monitor',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
       '--mute-audio',
       '--disable-audio-output',
       '--autoplay-policy=no-user-gesture-required'

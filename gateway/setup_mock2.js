@@ -19,8 +19,8 @@ insertStmt.run(
   'General Site', 
   'devcamera1_hd', 
   'bridge', 
-  'afzal.basha@goldbharat.com', 
-  'default', 
+  'info@enarxi.com', 
+  'Enarxi12345@', 
   'worker1', 
   'offline'
 );
@@ -35,8 +35,8 @@ for (let i = 1; i <= 2; i++) {
     'General Site', 
     `mock_cam_${i}`, 
     'bridge', 
-    'afzal.basha@goldbharat.com', 
-    'default', 
+    'info@enarxi.com', 
+    'Enarxi12345@', 
     'worker1', 
     'online'
   );

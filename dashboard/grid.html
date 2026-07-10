@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Truecam 2x2 Grid</title>
+  <style>
+    body { margin: 0; background-color: #111; color: white; font-family: sans-serif; }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 50vh 50vh;
+      width: 100vw;
+      height: 100vh;
+      gap: 2px;
+      background: #333;
+    }
+    .cell {
+      position: relative;
+      background: #000;
+      overflow: hidden;
+    }
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    .label {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.6);
+      padding: 5px 10px;
+      border-radius: 4px;
+      font-weight: bold;
+      z-index: 10;
+    }
+  </style>
+</head>
+<body>
+  <div class="grid">
+    <div class="cell">
+      <div class="label">Real: devcamera1_hd</div>
+      <iframe src="http://168.144.84.199:8889/live/devcamera1_hd/" style="border:0; width:100%; height:100%;"></iframe>
+    </div>
+    <div class="cell">
+      <div class="label">Mock 1: mock_cam_1</div>
+      <iframe src="http://168.144.84.199:8889/live/mock_cam_1/" style="border:0; width:100%; height:100%;"></iframe>
+    </div>
+    <div class="cell">
+      <div class="label">Mock 2: mock_cam_2</div>
+      <iframe src="http://168.144.84.199:8889/live/mock_cam_2/" style="border:0; width:100%; height:100%;"></iframe>
+    </div>
+    <div class="cell">
+      <div class="label">Mock 3: mock_cam_3</div>
+      <iframe src="http://168.144.84.199:8889/live/mock_cam_3/" style="border:0; width:100%; height:100%;"></iframe>
+    </div>
+  </div>
+</body>
+</html>

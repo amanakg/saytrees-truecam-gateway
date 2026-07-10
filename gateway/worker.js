@@ -448,6 +448,26 @@ class CameraBridge {
 
   async connectCameraInPage() {
     try {
+      if (this.deviceId.startsWith('MOCK_CAM_')) {
+        this.log('Simulating connection for mock camera...');
+        db.updateStatus(this.deviceId, 'connected');
+        
+        // Spawn dummy FFmpeg load generator for testing
+        this.killFfmpeg();
+        const ffmpegArgs = [
+          '-re',
+          '-f', 'lavfi',
+          '-i', 'testsrc=size=1920x1080:rate=15',
+          '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency', '-crf', '28',
+          '-f', 'rtsp',
+          '-rtsp_transport', 'tcp',
+          this.streamUrl
+        ];
+        this.ffmpegProcess = spawn('ffmpeg', ffmpegArgs);
+        this.ffmpegProcess.stderr.on('data', () => {}); // Ignore output to prevent spam
+        return;
+      }
+
       const page = await this.accountManager.getReadyPage();
 
       this.log('Injecting connection command into shared page...');

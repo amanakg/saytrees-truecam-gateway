@@ -604,7 +604,15 @@ async function boot() {
       '--disable-renderer-backgrounding',
       '--mute-audio',
       '--disable-audio-output',
-      '--autoplay-policy=no-user-gesture-required'
+      '--autoplay-policy=no-user-gesture-required',
+      // Extreme Memory Optimization Flags
+      '--disable-features=OptimizationGuideModelDownloading,OptimizationHints,OnDeviceModel,OnDeviceTranslation,OptimizationGuideOnDeviceModel',
+      '--disable-component-update',
+      '--disable-software-rasterizer',
+      '--disable-webgl',
+      '--disable-3d-apis',
+      '--disable-accelerated-2d-canvas',
+      '--disable-gpu-compositing'
     ]
   });
 

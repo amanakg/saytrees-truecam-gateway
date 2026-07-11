@@ -253,6 +253,42 @@
     .status-text { font-size: 13px; color: var(--muted); font-weight: 500; }
     .error-icon { font-size: 28px; }
 
+    /* ── Extra Cams List ── */
+    .extra-cams-container {
+      margin-top: 4px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .extra-cams-title {
+      font-size: 13px; color: var(--muted); font-weight: 500;
+    }
+    .extra-cams-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      max-height: 80px;
+      overflow-y: auto;
+    }
+    .extra-cam-pill {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 12px;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .extra-cam-pill .dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 6px var(--green);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
     /* ── Bottom controls bar ── */
     .cam-footer {
       display: flex; align-items: center; justify-content: space-between;
@@ -397,6 +433,12 @@
   <div class="grid" id="camGrid">
   </div><!-- /grid -->
   
+  <!-- Extra Mock Streams Container -->
+  <div class="extra-cams-container" id="extraCamsContainer" style="display: none;">
+    <div class="extra-cams-title">Additional Background Mock Streams (Running on Server):</div>
+    <div class="extra-cams-list" id="extraCamsList"></div>
+  </div>
+
   <!-- Diagnostic Log Console Panel -->
   <div class="debug-log-box" id="debugLogBox">
     [Dashboard Debug] System ready. Awaiting camera connections...
@@ -636,13 +678,22 @@
   function renderCameraDOM() {
     const grid = document.getElementById('camGrid');
     const theaterBody = document.getElementById('theaterBody');
+    const extraContainer = document.getElementById('extraCamsContainer');
+    const extraList = document.getElementById('extraCamsList');
+    
     grid.innerHTML = '';
     theaterBody.innerHTML = '';
+    extraList.innerHTML = '';
+    
     document.getElementById('activeCamCount').textContent = `${CAMERAS.length} Cameras Active`;
 
-    CAMERAS.forEach(cam => {
+    let hasExtras = false;
+
+    CAMERAS.forEach((cam, index) => {
       const idx = cam.id;
-      // Main Grid Card
+      
+      if (index < 4) {
+        // Main Grid Card
       const card = document.createElement('div');
       card.className = 'cam-card';
       card.id = `card${idx}`;
@@ -690,7 +741,22 @@
         <div class="theater-slot-label" id="tlabel${idx}">${cam.name} · ${cam.deviceId}</div>
       `;
       theaterBody.appendChild(tslot);
+      
+      } else {
+        // Render as a pill if beyond the first 4
+        hasExtras = true;
+        const pill = document.createElement('div');
+        pill.className = 'extra-cam-pill';
+        pill.innerHTML = `<div class="dot"></div>${cam.name}`;
+        extraList.appendChild(pill);
+      }
     });
+
+    if (hasExtras) {
+      extraContainer.style.display = 'flex';
+    } else {
+      extraContainer.style.display = 'none';
+    }
   }
 
   // ── Mock Testing Logic ──
@@ -732,8 +798,10 @@
 
       renderCameraDOM();
       
-      // Start connecting
-      CAMERAS.forEach(cam => initCamera(cam));
+      // Start connecting only for the first 4 to save browser memory
+      CAMERAS.forEach((cam, index) => {
+        if (index < 4) initCamera(cam);
+      });
 
     } catch (err) {
       addDebugLog(err.message, 'error');

@@ -223,6 +223,22 @@ class AccountPage {
     }
     this.isReady = false;
   }
+
+  async reloadPage() {
+    if (this.isReloading) return this.initializationPromise;
+    this.isReloading = true;
+    this.isReady = false;
+    this.initializationPromise = (async () => {
+      try {
+        console.log(`[AccountPage:${this.accountEmail}] Recreating shared page to reset SDK state...`);
+        await this.close();
+        await this.initPage();
+      } finally {
+        this.isReloading = false;
+      }
+    })();
+    return this.initializationPromise;
+  }
 }
 
 /**
@@ -419,6 +435,8 @@ class CameraBridge {
       this.reconnectTimeout = null;
       try {
         this.isReconnecting = true;
+        this.log('Attempting to reconnect (reloading shared page to reset SDK state)...');
+        await this.accountManager.reloadPage();
         await this.connectCameraInPage();
       } catch (err) {
         this.error(`Reconnection failed: ${err.message}`);
@@ -471,6 +489,8 @@ class CameraBridge {
       const page = await this.accountManager.getReadyPage();
 
       this.log('Injecting connection command into shared page...');
+      let isConnectCommandSent = false;
+
       await page.evaluate((devId, devSecret, wsPort) => {
         window.__wsConnections = window.__wsConnections || {};
 
@@ -642,6 +662,47 @@ async function boot() {
 
     await new Promise(r => setTimeout(r, 1000));
   }
+
+  // Set up polling loop to check for new assigned devices
+  setInterval(() => {
+    try {
+      const currentDevices = db.db.prepare(`
+        SELECT * FROM devices 
+        WHERE ingest_tier = 'bridge' AND worker_id = ?
+      `).all(workerId);
+      
+      const globalDevices = db.db.prepare(`
+        SELECT device_id FROM devices 
+        WHERE ingest_tier = 'bridge' 
+        ORDER BY created_at
+      `).all();
+
+      for (const device of currentDevices) {
+        const existingBridge = activeBridges.find(b => b.deviceId === device.device_id);
+        if (!existingBridge) {
+          console.log(`[Worker:${workerId}] Detected new assigned device: ${device.device_id}. Initializing bridge...`);
+          const email = device.account_email;
+          let accountPage = accountPages.get(email);
+          if (!accountPage) {
+            accountPage = new AccountPage(email, device.account_password_ref, browserInstance);
+            accountPages.set(email, accountPage);
+          }
+
+          const index = globalDevices.findIndex(d => d.device_id === device.device_id);
+          const wsPort = baseWsPort + (index >= 0 ? index : 0);
+
+          const bridge = new CameraBridge(device, wsPort, accountPage);
+          activeBridges.push(bridge);
+
+          bridge.start().catch(err => {
+            console.error(`[Worker:${workerId}] Error starting new camera bridge ${device.device_id}:`, err.message);
+          });
+        }
+      }
+    } catch (e) {
+      console.error(`[Worker:${workerId}] Error during device polling:`, e.message);
+    }
+  }, 30000);
 }
 
 let isShuttingDown = false;

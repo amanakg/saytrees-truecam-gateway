@@ -9,7 +9,7 @@ const { spawn } = require('child_process');
 const appMain = express();
 const appTesting = express();
 const portMain = 3000;
-const portTesting = 9001;
+const portTesting = 9000;
 
 // Middlewares
 appMain.use(express.json());

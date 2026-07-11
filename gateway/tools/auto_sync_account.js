@@ -13,6 +13,12 @@ async function syncAccount(accountEmail, accountPasswordRef, clientId) {
 
   try {
     const page = await browser.newPage();
+    
+    page.on('dialog', async (dialog) => {
+      console.log('[Sync] Handled dialog:', dialog.message());
+      await dialog.accept();
+    });
+
     console.log('[Sync] Navigating to TrueCam web portal (Local SDK)...');
     await page.goto('http://localhost:8000/', { waitUntil: 'networkidle2' });
 

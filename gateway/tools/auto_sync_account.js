@@ -68,13 +68,26 @@ async function syncAccount(accountEmail, accountPasswordRef, clientId) {
     let syncedCount = 0;
     for (let i = 0; i < devices.length; i++) {
       const d = devices[i];
-      console.log(`[Sync] Upserting device: ${d.nickname} (${d.deviceId})`);
+      // Value format is usually: PRODUCT_ID:DEVICE_ID:DEVICE_SECRET
+      const parts = d.deviceId.split(':');
+      let actualDeviceId = d.deviceId;
+      let actualDeviceSecret = 'unknown_secret';
+      
+      if (parts.length === 3) {
+        actualDeviceId = parts[1];
+        actualDeviceSecret = parts[2];
+      } else if (parts.length === 2) {
+        actualDeviceId = parts[0];
+        actualDeviceSecret = parts[1];
+      }
+
+      console.log(`[Sync] Upserting device: ${d.nickname} (${actualDeviceId})`);
       
       const streamName = `devcamera${i + 1}_hd`; // Simple mapping for demo
 
       db.upsertDevice({
-        deviceId: d.deviceId,
-        deviceSecret: 'unknown_secret', // Secret is unavailable via this scraping method
+        deviceId: actualDeviceId,
+        deviceSecret: actualDeviceSecret,
         nickname: d.nickname,
         clientId: clientId,
         siteName: 'Auto Synced Site',

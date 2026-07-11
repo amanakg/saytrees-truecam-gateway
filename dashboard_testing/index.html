@@ -54,7 +54,7 @@
 
     /* ── Header ── */
     header {
-      display: flex; align-items: center; justify-content: space-between;
+      display: flex; align-items: center; justify-content: center;
       flex-shrink: 0;
     }
 
@@ -414,33 +414,18 @@
 <div class="app">
   <!-- Header -->
   <header>
-    <div class="brand">
-      <div class="brand-logo">📹</div>
-      <div class="brand-name">Testing <span>Cameras</span></div>
-    </div>
-
     <div class="header-center">
       <div style="display:flex; gap:8px; align-items:center; margin-right: 20px;">
         <span style="font-size: 13px; font-weight: 500;">Mock Cameras:</span>
         <input type="number" id="mockCountInput" value="5" min="1" max="100" style="padding: 6px; border-radius: 6px; background: rgba(255,255,255,0.1); border: 1px solid var(--border); color: #fff; width: 60px; outline: none; font-size: 13px;" />
         <button class="btn primary" onclick="startMockTest()">Start Test</button>
+        <button class="btn" style="background: rgba(255,71,87,0.2); border-color: var(--red); color: #fff;" onclick="stopMockTest()">Stop Test</button>
       </div>
       <div class="pill">
         <span class="dot"></span>
         <span id="activeCamCount">0 Cameras Active</span>
       </div>
       <span id="live-clock"></span>
-    </div>
-
-    <div class="header-actions">
-      <button class="btn" id="refreshAllBtn" onclick="refreshAll()">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.32"/></svg>
-        Refresh All
-      </button>
-      <button class="btn primary" id="theaterBtn" onclick="openTheater()">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-        Dual Fullscreen
-      </button>
     </div>
   </header>
 
@@ -455,11 +440,6 @@
         Start a mock test to view cameras.
       </div>
     </div>
-  </div>
-
-  <!-- Diagnostic Log Console Panel -->
-  <div class="debug-log-box" id="debugLogBox">
-    [Dashboard Debug] System ready. Awaiting camera connections...
   </div>
 </div><!-- /app -->
 
@@ -793,6 +773,9 @@
   };
 
   // ── Mock Testing Logic ──
+  function stopMockTest() {
+    location.reload();
+  }
   async function startMockTest() {
     const input = document.getElementById('mockCountInput');
     let count = parseInt(input.value, 10);

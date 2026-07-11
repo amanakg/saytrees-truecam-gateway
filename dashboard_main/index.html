@@ -149,12 +149,13 @@
     /* ── Camera card ── */
     .cam-card {
       position: relative;
-      background: var(--surface);
+      background: #0d1117;
       border: 1px solid var(--border);
       border-radius: var(--radius);
       overflow: hidden;
       display: flex; flex-direction: column;
-      transition: box-shadow .2s, border-color .2s;
+      transition: all .25s cubic-bezier(0.4, 0, 0.2, 1);
+      aspect-ratio: 16 / 9;
     }
     .cam-card:hover {
       border-color: rgba(0,200,255,0.25);
@@ -170,6 +171,7 @@
       flex-direction: column;
       color: var(--muted); font-weight: 600; font-size: 13px; letter-spacing: 1px;
       cursor: default;
+      aspect-ratio: 16 / 9;
     }
 
     /* ── Video wrapper ── */

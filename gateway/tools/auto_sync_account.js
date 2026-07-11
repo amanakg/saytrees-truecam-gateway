@@ -7,7 +7,6 @@ async function syncAccount(accountEmail, accountPasswordRef, clientId) {
   console.log(`[Sync] Starting sync for account: ${accountEmail}`);
   
   const browser = await puppeteer.launch({
-    executablePath: '/usr/bin/google-chrome',
     headless: true,
     args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
   });

@@ -701,7 +701,7 @@
     addDebugLog(`Requesting ${count} mock cameras from backend...`);
 
     try {
-      const res = await fetch('http://localhost:9001/api/test/mock_cameras', {
+      const res = await fetch('/api/test/mock_cameras', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ count })

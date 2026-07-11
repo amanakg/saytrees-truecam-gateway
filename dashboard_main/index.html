@@ -686,7 +686,7 @@
   // ── Dynamic Metadata Fetching from API ──
   async function fetchMetadata() {
     try {
-      const response = await fetch('http://168.144.84.199:9000/api/clients/enarxi/cameras', {
+      const response = await fetch('/api/clients/enarxi/cameras', {
         headers: {
           'x-api-key': 'dummy_hash_for_testing' // Replace with proper auth mechanism in production
         }

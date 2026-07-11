@@ -132,13 +132,13 @@
 
     /* ── Camera grid ── */
     .grid {
-      flex: 1; min-height: 0;
+      flex: 1; 
+      height: 100%; min-height: 0;
       display: grid;
       grid-template-columns: repeat(4, 1fr);
       grid-template-rows: repeat(2, 1fr);
       gap: 12px;
       transition: all .3s ease;
-      align-content: stretch;
       padding-right: 4px;
     }
     .grid.theater {
@@ -153,9 +153,9 @@
       border: 1px solid var(--border);
       border-radius: var(--radius);
       overflow: hidden;
-      display: flex; flex-direction: column;
+      display: flex;
+      flex-direction: column;
       transition: all .25s cubic-bezier(0.4, 0, 0.2, 1);
-      aspect-ratio: 16 / 9;
     }
     .cam-card:hover {
       border-color: rgba(0,200,255,0.25);
@@ -171,7 +171,6 @@
       flex-direction: column;
       color: var(--muted); font-weight: 600; font-size: 13px; letter-spacing: 1px;
       cursor: default;
-      aspect-ratio: 16 / 9;
     }
 
     /* ── Video wrapper ── */

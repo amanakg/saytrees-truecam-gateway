@@ -16,16 +16,16 @@ const insertStmt = db.db.prepare(`
 
 // We assign worker_id = NULL because the worker doesn't need to touch this camera
 insertStmt.run(
-  '367ABDWN1000346168', 
-  '08ce8ae8a9e468d2313c03c9e058a3c2', 
-  'Office Camera Native', 
-  'enarxi', 
-  'General Site', 
-  'native_cam', 
-  'native', 
-  'info@enarxi.com', 
-  'Enarxi12345@', 
-  null, 
+  '367ABDWN1000346168',
+  '08ce8ae8a9e468d2313c03c9e058a3c2',
+  'Office Camera Native',
+  'enarxi',
+  'General Site',
+  'native_cam',
+  'native',
+  'info@enarxi.com',
+  'Enarxi12345@',
+  null,
   'online'
 );
 

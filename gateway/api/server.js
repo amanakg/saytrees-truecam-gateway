@@ -4,25 +4,33 @@
 const express = require('express');
 const path = require('path');
 const db = require('../registry/db');
-const app = express();
-const port = process.env.API_PORT || 3000;
+const { spawn } = require('child_process');
 
-app.use(express.json());
+const appMain = express();
+const appTesting = express();
+const portMain = 9000;
+const portTesting = 9001;
 
-// Serve the dashboard statically on Port 3000 (bypassing firewall block on 9000)
-app.use(express.static(path.join(__dirname, '..', '..', 'dashboard')));
+// Middlewares
+appMain.use(express.json());
+appTesting.use(express.json());
 
+// Serve static dashboards
+appMain.use(express.static(path.join(__dirname, '..', '..', 'dashboard_main')));
+appTesting.use(express.static(path.join(__dirname, '..', '..', 'dashboard_testing')));
 
-// Enable CORS for dashboard integration
-app.use((req, res, next) => {
+const corsMiddleware = (req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, x-api-key');
-  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
   }
   next();
-});
+};
+
+appMain.use(corsMiddleware);
+appTesting.use(corsMiddleware);
 
 // Middleware to authenticate tenant client API key
 function authenticateClient(req, res, next) {
@@ -47,11 +55,7 @@ function authenticateClient(req, res, next) {
   next();
 }
 
-/**
- * GET /api/clients/:clientId/cameras
- * Returns all registered cameras for the given client.
- */
-app.get('/api/clients/:clientId/cameras', authenticateClient, (req, res) => {
+const getCamerasHandler = (req, res) => {
   try {
     const devices = db.listDevicesByClient(req.client.client_id);
     
@@ -77,16 +81,61 @@ app.get('/api/clients/:clientId/cameras', authenticateClient, (req, res) => {
     console.error('[API] Error listing cameras:', err.message);
     res.status(500).json({ error: 'Internal Server Error' });
   }
+};
+
+appMain.get('/api/clients/:clientId/cameras', authenticateClient, getCamerasHandler);
+appTesting.get('/api/clients/:clientId/cameras', authenticateClient, getCamerasHandler);
+
+// Mock Camera Management
+let mockProcesses = [];
+
+appTesting.post('/api/test/mock_cameras', (req, res) => {
+  const { count } = req.body;
+  if (typeof count !== 'number' || count < 0) {
+    return res.status(400).json({ error: 'Invalid count' });
+  }
+
+  console.log(`[Testing API] Stopping ${mockProcesses.length} existing mock cameras...`);
+  mockProcesses.forEach(p => {
+    try { p.kill('SIGKILL'); } catch(e) {}
+  });
+  mockProcesses = [];
+
+  console.log(`[Testing API] Starting ${count} new mock cameras...`);
+  for (let i = 1; i <= count; i++) {
+    const streamName = `mock_cam_${i}`;
+    // FFMPEG command to copy from devcamera1_hd to mock_cam_X
+    const ffmpegArgs = [
+      '-fflags', 'nobuffer',
+      '-flags', 'low_delay',
+      '-rtsp_transport', 'tcp',
+      '-i', 'rtsp://127.0.0.1:8554/live/devcamera1_hd',
+      '-c:v', 'copy',
+      '-f', 'rtsp',
+      '-rtsp_transport', 'tcp',
+      `rtsp://127.0.0.1:8554/live/${streamName}`
+    ];
+    
+    const p = spawn('ffmpeg', ffmpegArgs);
+    p.on('error', (err) => console.error(`[Mock ${i}] FFmpeg error: ${err.message}`));
+    mockProcesses.push(p);
+  }
+
+  res.json({ message: `Started ${count} mock cameras`, count });
 });
 
-const server = app.listen(port, () => {
-  console.log(`[API] Server listening on port ${port}`);
+const serverMain = appMain.listen(portMain, () => {
+  console.log(`[API Main] Server listening on port ${portMain}`);
+});
+const serverTesting = appTesting.listen(portTesting, () => {
+  console.log(`[API Testing] Server listening on port ${portTesting}`);
 });
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
-  server.close(() => {
-    db.close();
-    console.log('[API] Server closed.');
-  });
+  serverMain.close();
+  serverTesting.close();
+  mockProcesses.forEach(p => { try { p.kill('SIGKILL'); } catch(e) {} });
+  db.close();
+  console.log('[API] Servers closed.');
 });

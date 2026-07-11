@@ -1,9 +1,9 @@
-const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
 const db = require('../registry/db');
 
 async function syncAccount(accountEmail, accountPasswordRef, clientId) {
+  const { default: puppeteer } = await import('puppeteer');
   console.log(`[Sync] Starting sync for account: ${accountEmail}`);
   
   const browser = await puppeteer.launch({

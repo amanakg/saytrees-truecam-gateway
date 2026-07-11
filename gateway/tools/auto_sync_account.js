@@ -13,8 +13,8 @@ async function syncAccount(accountEmail, accountPasswordRef, clientId) {
 
   try {
     const page = await browser.newPage();
-    console.log('[Sync] Navigating to TrueCam web portal...');
-    await page.goto('https://h5-webrtc.truecam.cn/demo/', { waitUntil: 'networkidle2' });
+    console.log('[Sync] Navigating to TrueCam web portal (Local SDK)...');
+    await page.goto('http://localhost:8000/', { waitUntil: 'networkidle2' });
 
     console.log('[Sync] Logging in...');
     await page.evaluate(async (acc, pwd) => {

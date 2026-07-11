@@ -134,15 +134,16 @@
     .grid {
       flex: 1; min-height: 0;
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+      grid-template-columns: repeat(4, 1fr);
+      grid-template-rows: repeat(2, 1fr);
       gap: 12px;
       transition: all .3s ease;
-      align-content: start;
-      overflow-y: auto;
+      align-content: stretch;
       padding-right: 4px;
     }
     .grid.theater {
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      grid-template-columns: repeat(2, 1fr);
+      grid-template-rows: repeat(2, 1fr);
     }
 
     /* ── Camera card ── */
@@ -161,6 +162,14 @@
     }
     .cam-card.focused {
       grid-column: 1 / -1;
+    }
+    .cam-card.empty {
+      background: rgba(255,255,255,0.02);
+      border: 1px dashed rgba(255,255,255,0.1);
+      display: flex; align-items: center; justify-content: center;
+      flex-direction: column;
+      color: var(--muted); font-weight: 600; font-size: 13px; letter-spacing: 1px;
+      cursor: default;
     }
 
     /* ── Video wrapper ── */
@@ -630,15 +639,24 @@
     const theaterBody = document.getElementById('theaterBody');
     grid.innerHTML = '';
     theaterBody.innerHTML = '';
-    document.getElementById('activeCamCount').textContent = `${CAMERAS.length} Cameras Active`;
+    
+    // We only care about up to 8 cameras
+    const displayCams = CAMERAS.slice(0, 8);
+    document.getElementById('activeCamCount').textContent = `${displayCams.length} Cameras Active`;
 
-    CAMERAS.forEach(cam => {
-      const idx = cam.id;
-      // Main Grid Card
-      const card = document.createElement('div');
-      card.className = 'cam-card';
-      card.id = `card${idx}`;
-      card.innerHTML = `
+    for (let i = 0; i < 8; i++) {
+      if (i < displayCams.length) {
+        const cam = displayCams[i];
+        const idx = cam.id;
+        
+        // Main Grid Card
+        const card = document.createElement('div');
+        card.className = 'cam-card';
+        card.id = `card${idx}`;
+        // Double-click to go fullscreen
+        card.ondblclick = () => goFullscreen(`video${idx}`);
+        
+        card.innerHTML = `
         <div class="video-wrap">
           <video id="video${idx}" autoplay muted playsinline></video>
           <div class="cam-overlay-tl">
@@ -682,7 +700,15 @@
         <div class="theater-slot-label" id="tlabel${idx}">${cam.name} · ${cam.deviceId}</div>
       `;
       theaterBody.appendChild(tslot);
-    });
+      
+      } else {
+        // Empty Slot
+        const emptyCard = document.createElement('div');
+        emptyCard.className = 'cam-card empty';
+        emptyCard.innerHTML = \`<svg width="28" height="28" opacity="0.2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-bottom:12px;"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line><line x1="2" y1="7" x2="7" y2="7"></line><line x1="2" y1="17" x2="7" y2="17"></line><line x1="17" y1="17" x2="22" y2="17"></line><line x1="17" y1="7" x2="22" y2="7"></line></svg><div>NO SIGNAL</div>\`;
+        grid.appendChild(emptyCard);
+      }
+    }
   }
 
   let isInitialized = false;

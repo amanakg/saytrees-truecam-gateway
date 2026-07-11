@@ -773,9 +773,16 @@
   };
 
   // ── Mock Testing Logic ──
-  function stopMockTest() {
+  async function stopMockTest() {
+    if (!confirm("Are you sure you want to stop the mock test?")) return;
+    try {
+      await fetch('/api/test/stop_mock_cameras', { method: 'POST' });
+    } catch(e) {
+      console.error("Failed to stop mock cameras:", e);
+    }
     location.reload();
   }
+
   async function startMockTest() {
     const input = document.getElementById('mockCountInput');
     let count = parseInt(input.value, 10);

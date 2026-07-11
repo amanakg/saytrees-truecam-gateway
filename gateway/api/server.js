@@ -124,6 +124,15 @@ appTesting.post('/api/test/mock_cameras', (req, res) => {
   res.json({ message: `Started ${count} mock cameras`, count });
 });
 
+appTesting.post('/api/test/stop_mock_cameras', (req, res) => {
+  console.log(`[Testing API] Stopping ${mockProcesses.length} mock cameras via Stop button...`);
+  mockProcesses.forEach(p => {
+    try { p.kill('SIGKILL'); } catch(e) {}
+  });
+  mockProcesses = [];
+  res.json({ message: 'Stopped all mock cameras' });
+});
+
 const serverMain = appMain.listen(portMain, () => {
   console.log(`[API Main] Server listening on port ${portMain}`);
 });

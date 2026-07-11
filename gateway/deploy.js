@@ -24,6 +24,7 @@ conn.on('ready', () => {
     else
       echo "PM2 not found. Killing node and restarting."
       pkill -f "node api/server.js" || true
+      pkill -f "mock_cam_" || true
       nohup node api/server.js > server.log 2>&1 &
       echo "Started via nohup."
     fi

@@ -100,6 +100,7 @@ appTesting.post('/api/test/mock_cameras', (req, res) => {
     try { p.kill('SIGKILL'); } catch(e) {}
   });
   mockProcesses = [];
+  try { require('child_process').execSync('pkill -f "mock_cam_" || true'); } catch(e) {}
 
   console.log(`[Testing API] Starting ${count} new mock cameras...`);
   for (let i = 1; i <= count; i++) {
@@ -130,6 +131,7 @@ appTesting.post('/api/test/stop_mock_cameras', (req, res) => {
     try { p.kill('SIGKILL'); } catch(e) {}
   });
   mockProcesses = [];
+  try { require('child_process').execSync('pkill -f "mock_cam_" || true'); } catch(e) {}
   res.json({ message: 'Stopped all mock cameras' });
 });
 

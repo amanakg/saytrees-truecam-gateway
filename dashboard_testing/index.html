@@ -130,19 +130,69 @@
     }
     .btn svg { flex-shrink: 0; }
 
-    /* ── Camera grid ── */
-    .grid {
+    /* ── Layout ── */
+    .layout-container {
       flex: 1; min-height: 0;
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
-      gap: 12px;
-      transition: all .3s ease;
-      align-content: start;
-      overflow-y: auto;
-      padding-right: 4px;
+      display: flex;
+      gap: 16px;
     }
-    .grid.theater {
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: 260px;
+      flex-shrink: 0;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    .sidebar-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px; font-weight: 600; color: var(--muted);
+      background: rgba(0,0,0,0.2);
+    }
+    .sidebar-list {
+      flex: 1; overflow-y: auto;
+      padding: 8px;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .sidebar-item {
+      padding: 10px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex; align-items: center; gap: 10px;
+      transition: all 0.2s;
+      border: 1px solid transparent;
+      color: var(--text); font-size: 13px; font-weight: 500;
+    }
+    .sidebar-item:hover {
+      background: rgba(255,255,255,0.05);
+    }
+    .sidebar-item.active {
+      background: rgba(0, 200, 255, 0.1);
+      border-color: rgba(0, 200, 255, 0.3);
+      color: #fff;
+    }
+    .sidebar-item .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--muted);
+      transition: all 0.2s;
+    }
+    .sidebar-item.active .dot {
+      background: var(--green);
+      box-shadow: 0 0 8px var(--green);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    /* ── Main View ── */
+    .main-view {
+      flex: 1; min-width: 0;
+      display: flex; flex-direction: column;
+    }
+    .main-view .cam-card {
+      flex: 1; height: 100%;
     }
 
     /* ── Camera card ── */
@@ -168,7 +218,6 @@
       flex: 1; min-height: 0;
       position: relative;
       background: #000;
-      aspect-ratio: 16 / 9;
     }
     video {
       width: 100%; height: 100%;
@@ -253,41 +302,7 @@
     .status-text { font-size: 13px; color: var(--muted); font-weight: 500; }
     .error-icon { font-size: 28px; }
 
-    /* ── Extra Cams List ── */
-    .extra-cams-container {
-      margin-top: 4px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      flex-shrink: 0;
-    }
-    .extra-cams-title {
-      font-size: 13px; color: var(--muted); font-weight: 500;
-    }
-    .extra-cams-list {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      max-height: 80px;
-      overflow-y: auto;
-    }
-    .extra-cam-pill {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 6px 12px;
-      font-size: 12px;
-      color: var(--text);
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .extra-cam-pill .dot {
-      width: 6px; height: 6px; border-radius: 50%;
-      background: var(--green);
-      box-shadow: 0 0 6px var(--green);
-      animation: pulse 2s ease-in-out infinite;
-    }
+    /* (Extra cams CSS removed for master-detail layout) */
 
     /* ── Bottom controls bar ── */
     .cam-footer {
@@ -429,14 +444,17 @@
     </div>
   </header>
 
-  <!-- Camera grid -->
-  <div class="grid" id="camGrid">
-  </div><!-- /grid -->
-  
-  <!-- Extra Mock Streams Container -->
-  <div class="extra-cams-container" id="extraCamsContainer" style="display: none;">
-    <div class="extra-cams-title">Additional Background Mock Streams (Running on Server):</div>
-    <div class="extra-cams-list" id="extraCamsList"></div>
+  <!-- Master-Detail Layout -->
+  <div class="layout-container">
+    <div class="sidebar">
+      <div class="sidebar-header">Cameras List</div>
+      <div class="sidebar-list" id="camSidebar"></div>
+    </div>
+    <div class="main-view" id="mainCamView">
+      <div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--muted);font-weight:500;">
+        Start a mock test to view cameras.
+      </div>
+    </div>
   </div>
 
   <!-- Diagnostic Log Console Panel -->
@@ -480,6 +498,7 @@
 
   // ── Stream configuration ──
   let CAMERAS = [];
+  let selectedCamId = null;
 
   const playInstances  = {};   // main grid players (MediaMTXWebRTCReader instances)
   const tplayInstances = {};   // theater players
@@ -676,33 +695,59 @@
 
   // ── Dynamic DOM Creation ──
   function renderCameraDOM() {
-    const grid = document.getElementById('camGrid');
+    const sidebar = document.getElementById('camSidebar');
+    const mainView = document.getElementById('mainCamView');
     const theaterBody = document.getElementById('theaterBody');
-    const extraContainer = document.getElementById('extraCamsContainer');
-    const extraList = document.getElementById('extraCamsList');
     
-    grid.innerHTML = '';
-    theaterBody.innerHTML = '';
-    extraList.innerHTML = '';
+    if(sidebar) sidebar.innerHTML = '';
+    if(theaterBody) theaterBody.innerHTML = '';
     
     document.getElementById('activeCamCount').textContent = `${CAMERAS.length} Cameras Active`;
 
-    let hasExtras = false;
+    if (CAMERAS.length === 0) {
+      if(mainView) mainView.innerHTML = `<div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--muted);font-weight:500;">Start a mock test to view cameras.</div>`;
+      return;
+    }
 
-    CAMERAS.forEach((cam, index) => {
+    if (!selectedCamId || !CAMERAS.find(c => c.id === selectedCamId)) {
+      selectedCamId = CAMERAS[0].id;
+    }
+
+    // Render Sidebar List
+    CAMERAS.forEach(cam => {
       const idx = cam.id;
+      const isActive = idx === selectedCamId;
       
-      if (index < 4) {
-        // Main Grid Card
-      const card = document.createElement('div');
-      card.className = 'cam-card';
-      card.id = `card${idx}`;
-      card.innerHTML = `
+      const item = document.createElement('div');
+      item.className = `sidebar-item ${isActive ? 'active' : ''}`;
+      item.onclick = () => selectCamera(idx);
+      item.innerHTML = `<div class="dot"></div>${cam.name}`;
+      if(sidebar) sidebar.appendChild(item);
+      
+      // Render Theater Slots for first 4 cameras
+      if (CAMERAS.indexOf(cam) < 4 && theaterBody) {
+        const tslot = document.createElement('div');
+        tslot.className = 'theater-slot';
+        tslot.innerHTML = `
+          <video id="tvideo${idx}" autoplay muted playsinline></video>
+          <div class="theater-slot-label" id="tlabel${idx}">${cam.name} · ${cam.deviceId}</div>
+        `;
+        theaterBody.appendChild(tslot);
+      }
+    });
+
+    // Render Main View
+    const cam = CAMERAS.find(c => c.id === selectedCamId);
+    if (!cam || !mainView) return;
+    
+    const idx = cam.id;
+    mainView.innerHTML = `
+      <div class="cam-card" id="card${idx}">
         <div class="video-wrap">
           <video id="video${idx}" autoplay muted playsinline></video>
           <div class="cam-overlay-tl">
             <div class="status-dot" id="dot${idx}"></div>
-            <div class="cam-label">MOCK ${idx}</div>
+            <div class="cam-label">${cam.name}</div>
           </div>
           <div class="cam-overlay-tr" id="clock${idx}"></div>
           <div class="cam-overlay-bl" id="meta${idx}"></div>
@@ -722,42 +767,30 @@
             <button class="icon-btn" title="Refresh" onclick="reloadCamera(${idx})">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.32"/></svg>
             </button>
-            <button class="icon-btn" title="Expand" id="expandBtn${idx}" onclick="toggleExpand(${idx})">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
-            </button>
             <button class="icon-btn" title="Fullscreen" onclick="goFullscreen('video${idx}')">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="8 3 3 3 3 8"/><polyline points="21 8 21 3 16 3"/><polyline points="3 16 3 21 8 21"/><polyline points="16 21 21 21 21 16"/></svg>
             </button>
           </div>
         </div>
-      `;
-      grid.appendChild(card);
+      </div>
+    `;
 
-      // Theater Slot
-      const tslot = document.createElement('div');
-      tslot.className = 'theater-slot';
-      tslot.innerHTML = `
-        <video id="tvideo${idx}" autoplay muted playsinline></video>
-        <div class="theater-slot-label" id="tlabel${idx}">${cam.name} · ${cam.deviceId}</div>
-      `;
-      theaterBody.appendChild(tslot);
-      
-      } else {
-        // Render as a pill if beyond the first 4
-        hasExtras = true;
-        const pill = document.createElement('div');
-        pill.className = 'extra-cam-pill';
-        pill.innerHTML = `<div class="dot"></div>${cam.name}`;
-        extraList.appendChild(pill);
-      }
-    });
-
-    if (hasExtras) {
-      extraContainer.style.display = 'flex';
-    } else {
-      extraContainer.style.display = 'none';
-    }
+    // Start streaming the selected camera
+    initCamera(cam);
   }
+
+  window.selectCamera = function(idx) {
+    if (selectedCamId === idx) return;
+    
+    // Close old stream
+    if (playInstances[selectedCamId]) {
+      try { playInstances[selectedCamId].close(); } catch(e) {}
+      delete playInstances[selectedCamId];
+    }
+    
+    selectedCamId = idx;
+    renderCameraDOM();
+  };
 
   // ── Mock Testing Logic ──
   async function startMockTest() {
@@ -798,10 +831,7 @@
 
       renderCameraDOM();
       
-      // Start connecting only for the first 4 to save browser memory
-      CAMERAS.forEach((cam, index) => {
-        if (index < 4) initCamera(cam);
-      });
+      // (initCamera is now handled automatically by renderCameraDOM for the selected camera)
 
     } catch (err) {
       addDebugLog(err.message, 'error');

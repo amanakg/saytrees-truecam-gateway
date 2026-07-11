@@ -854,82 +854,83 @@
           // Empty Slot
           const emptyCard = document.createElement('div');
           emptyCard.className = 'cam-card empty';
+          emptyCard.innerHTML = `<svg width="28" height="28" opacity="0.2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-bottom:12px;"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line><line x1="2" y1="7" x2="7" y2="7"></line><line x1="2" y1="17" x2="7" y2="17"></line><line x1="17" y1="17" x2="22" y2="17"></line><line x1="17" y1="7" x2="22" y2="7"></line></svg><div>Cam ${i + 1}</div>`;
           grid.appendChild(emptyCard);
         }
-      }
     }
+  }
 
-    let isInitialized = false;
+  let isInitialized = false;
 
-    // ── Dynamic Metadata Fetching from API ──
-    async function fetchMetadata() {
-      try {
-        const response = await fetch('/api/clients/enarxi/cameras', {
-          headers: {
-            'x-api-key': 'dummy_hash_for_testing' // Replace with proper auth mechanism in production
-          }
-        });
-        if (!response.ok) throw new Error(`HTTP error ${response.status}`);
-        const data = await response.json();
-
-        // Filter out mock cameras
-        const realCameras = data.filter(c => !c.streamName.startsWith('mock_cam_'));
-
-        // If list changed, re-render DOM
-        if (realCameras.length !== CAMERAS.length || !isInitialized) {
-          CAMERAS = realCameras.map((c, i) => ({
-            id: i + 1,
-            name: c.name,
-            deviceId: c.id,
-            whepUrl: c.whepUrl
-          }));
-
-          renderCameraDOM();
-
-          // Clean old play instances
-          Object.keys(playInstances).forEach(k => { try { playInstances[k].close(); } catch (e) { } delete playInstances[k]; });
-          Object.keys(tplayInstances).forEach(k => { try { tplayInstances[k].close(); } catch (e) { } delete tplayInstances[k]; });
-
-          CAMERAS.forEach(cam => initCamera(cam));
-          isInitialized = true;
+  // ── Dynamic Metadata Fetching from API ──
+  async function fetchMetadata() {
+    try {
+      const response = await fetch('/api/clients/enarxi/cameras', {
+        headers: {
+          'x-api-key': 'dummy_hash_for_testing' // Replace with proper auth mechanism in production
         }
+      });
+      if (!response.ok) throw new Error(`HTTP error ${ response.status } `);
+      const data = await response.json();
+      
+      // Filter out mock cameras
+      const realCameras = data.filter(c => !c.streamName.startsWith('mock_cam_'));
 
-        data.forEach(cam => {
-          const matched = CAMERAS.find(c => c.deviceId === cam.id);
-          if (matched) {
-            const idx = matched.id;
-            const metaDiv = document.getElementById(`meta${idx}`);
-            const tlabel = document.getElementById(`tlabel${idx}`);
+      // If list changed, re-render DOM
+      if (realCameras.length !== CAMERAS.length || !isInitialized) {
+        CAMERAS = realCameras.map((c, i) => ({
+          id: i + 1,
+          name: c.name,
+          deviceId: c.id,
+          whepUrl: c.whepUrl
+        }));
+        
+        renderCameraDOM();
+        
+        // Clean old play instances
+        Object.keys(playInstances).forEach(k => { try{ playInstances[k].close(); } catch(e){} delete playInstances[k]; });
+        Object.keys(tplayInstances).forEach(k => { try{ tplayInstances[k].close(); } catch(e){} delete tplayInstances[k]; });
+        
+        CAMERAS.forEach(cam => initCamera(cam));
+        isInitialized = true;
+      }
 
-            if (cam.status === 'connected' && cam.metadata && cam.metadata.resolution) {
-              const metaStr = `${cam.metadata.resolution} · ${cam.metadata.fps}fps · ${cam.metadata.codec.toUpperCase()}`;
-
-              // Update main grid overlay
-              if (metaDiv) {
-                metaDiv.textContent = metaStr;
-                metaDiv.style.display = 'block';
-              }
-
-              // Update theater view label
-              if (tlabel) {
-                tlabel.textContent = `${matched.name} · ${cam.id} (${metaStr})`;
-              }
-            } else {
-              if (metaDiv) metaDiv.style.display = 'none';
-              if (tlabel) {
-                tlabel.textContent = `${matched.name} · ${cam.id}`;
-              }
+      data.forEach(cam => {
+        const matched = CAMERAS.find(c => c.deviceId === cam.id);
+        if (matched) {
+          const idx = matched.id;
+          const metaDiv = document.getElementById(`meta${ idx } `);
+          const tlabel = document.getElementById(`tlabel${ idx } `);
+          
+          if (cam.status === 'connected' && cam.metadata && cam.metadata.resolution) {
+            const metaStr = `${ cam.metadata.resolution } · ${ cam.metadata.fps } fps · ${ cam.metadata.codec.toUpperCase() } `;
+            
+            // Update main grid overlay
+            if (metaDiv) {
+              metaDiv.textContent = metaStr;
+              metaDiv.style.display = 'block';
+            }
+            
+            // Update theater view label
+            if (tlabel) {
+              tlabel.textContent = `${ matched.name } · ${ cam.id } (${ metaStr })`;
+            }
+          } else {
+            if (metaDiv) metaDiv.style.display = 'none';
+            if (tlabel) {
+              tlabel.textContent = `${ matched.name } · ${ cam.id }`;
             }
           }
-        });
-      } catch (e) {
-        console.warn('Failed to fetch camera metadata:', e.message);
-      }
+        }
+      });
+    } catch (e) {
+      console.warn('Failed to fetch camera metadata:', e.message);
     }
+  }
 
-    // Poll metadata every 5 seconds
-    setInterval(fetchMetadata, 5000);
-    fetchMetadata();
+  // Poll metadata every 5 seconds
+  setInterval(fetchMetadata, 5000);
+  fetchMetadata();
   </script>
 </body>
 

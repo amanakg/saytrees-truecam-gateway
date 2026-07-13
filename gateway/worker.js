@@ -178,6 +178,7 @@ class AccountPage {
         while (!loaded && listAttempts < 15) {
           listAttempts++;
           try {
+            await getDeviceList(); // CRITICAL: Populates the DOM dropdown which SDK relies on!
             let res = await window.ConnectApi.getDeviceList();
             if (res && res.data && res.data.data && res.data.data.list) {
               devices = res.data.data.list.map(d => d.deviceParams);

@@ -726,6 +726,54 @@ async function boot() {
 
     await new Promise(r => setTimeout(r, 1000));
   }
+  // Periodically poll the Tuya SDK to discover newly added cameras automatically
+  // This removes the need to ever manually restart the worker after adding a camera in the Tuya app.
+  setInterval(async () => {
+    try {
+      for (const [email, accountPage] of accountPages) {
+        if (!accountPage.isReady || !accountPage.page) continue;
+        
+        // Re-extract device list from the live browser session
+        const deviceList = await accountPage.page.evaluate(async () => {
+          try {
+            let res = await window.ConnectApi.getDeviceList();
+            if (res && res.data && res.data.data && res.data.data.list) {
+              return res.data.data.list.map(d => d.deviceParams);
+            }
+          } catch(e) {}
+          return [];
+        });
+
+        if (deviceList.length > 0) {
+          for (const dev of deviceList) {
+            if (!dev.deviceUuid || !dev.deviceSecret) continue;
+            const existing = db.getDevice(dev.deviceUuid);
+            if (!existing) {
+              console.log(`[Worker:${workerId}] Background sync found new camera: ${dev.deviceUuid}. Registering...`);
+              const streamName = `cam_${dev.deviceUuid.slice(-6).toLowerCase()}`;
+              try {
+                db.upsertDevice({
+                  deviceId: dev.deviceUuid,
+                  deviceSecret: dev.deviceSecret,
+                  nickname: dev.nickname || `Camera_${dev.deviceUuid.slice(-6)}`,
+                  clientId: 'enarxi',
+                  accountEmail: email,
+                  accountPasswordRef: accountPage.accountPassword,
+                  streamName: streamName,
+                  workerId: workerId,
+                  status: 'offline'
+                });
+              } catch (e) {
+                console.error(`[Worker:${workerId}] Background auto-sync failed for ${dev.deviceUuid}:`, e.message);
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error(`[Worker:${workerId}] Error during Tuya background sync:`, e.message);
+    }
+  }, 2 * 60 * 1000); // Check Tuya Cloud every 2 minutes
 
   // Set up polling loop to check for new assigned devices
   setInterval(() => {

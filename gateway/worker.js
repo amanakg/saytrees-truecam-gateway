@@ -549,14 +549,8 @@ class CameraBridge {
                 console.log("[Browser] ERROR: devId not found in dropdown list!");
                 return;
               }
-
-              Player.ConnectDevice(formattedDevId, "", "admin", devSecret, 0, 80, 0, 0, 1, "wss", window.onResolv);
-
-              setTimeout(() => {
-                if (typeof Player !== 'undefined' && Player.OpenStream) {
-                  Player.OpenStream(devId, "", 0, 1, 0);
-                }
-              }, 3000);
+              // Use connectType=1 (Connect and open stream automatically) to prevent race conditions
+              Player.ConnectDevice(formattedDevId, "", "admin", devSecret, 0, 80, 1, 0, 1, "wss", window.onResolv);
             }
           }, 500);
         };

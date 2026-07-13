@@ -107,17 +107,38 @@ function connectLayer(cam, state, layer) {
         const newVideo = document.getElementById(`video${idx}_${layer}`);
         const oldVideo = document.getElementById(`video${idx}_${oldLayer}`);
         
-        newVideo.className = 'cam-video active';
-        oldVideo.className = 'cam-video standby';
-        oldVideo.srcObject = null;
+        // Wait for actual frames to render before hiding the old video
+        let frameCount = 0;
+        const onTimeUpdate = () => {
+          frameCount++;
+          if (frameCount > 2) finishSwap(); // Wait for 2 frames
+        };
         
-        if (state.activeReader) {
-           state.activeReader.close();
-        }
-        state.activeReader = reader;
-        state.standbyReader = null;
-        state.activeLayer = layer;
-        addDebugLog(`Cam ${idx}: Seamless swap completed`, 'success');
+        const finishSwap = () => {
+          newVideo.removeEventListener('timeupdate', onTimeUpdate);
+          if (state.activeLayer === layer) return; // Already swapped
+          
+          newVideo.className = 'cam-video active';
+          oldVideo.className = 'cam-video standby';
+          oldVideo.srcObject = null;
+          
+          if (state.activeReader) {
+             state.activeReader.close();
+          }
+          state.activeReader = reader;
+          state.standbyReader = null;
+          state.activeLayer = layer;
+          addDebugLog(`Cam ${idx}: Seamless swap completed`, 'success');
+        };
+
+        newVideo.addEventListener('timeupdate', onTimeUpdate);
+        
+        // Ensure new video is in front but old video is still visible behind it
+        newVideo.style.opacity = '1';
+        newVideo.style.zIndex = '3';
+        
+        // Fallback timeout in case timeupdate doesn't fire fast enough
+        setTimeout(finishSwap, 4000);
       } else {
          setCamState(idx, 'live');
       }

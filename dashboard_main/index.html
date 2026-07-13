@@ -10,27 +10,13 @@
 
 <body>
   <div class="app-container">
-    <!-- Header -->
     <header class="header">
-      <div class="brand">
-        <div class="brand-logo">E</div>
-        <div class="brand-title">Enarxi<span>Cam</span></div>
-      </div>
-      
-      <div class="header-meta">
+      <div class="header-meta" style="margin-left: auto;">
         <div class="status-pill">
           <span class="indicator"></span>
           <span id="activeCamCount">0 Active</span>
         </div>
         <span class="clock" id="live-clock">--:--:--</span>
-        <button class="btn-primary" onclick="openTheater()">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
-            <line x1="8" y1="21" x2="16" y2="21"/>
-            <line x1="12" y1="17" x2="12" y2="21"/>
-          </svg>
-          Theater Mode
-        </button>
       </div>
     </header>
 
@@ -40,33 +26,6 @@
     </main>
   </div>
 
-  <!-- Theater Overlay -->
-  <div class="theater-overlay" id="theaterOverlay">
-    <div class="theater-header">
-      <div class="theater-title">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2">
-          <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
-          <line x1="8" y1="21" x2="16" y2="21"/>
-          <line x1="12" y1="17" x2="12" y2="21"/>
-        </svg>
-        Dual Camera View
-      </div>
-      <div class="header-meta">
-        <span class="clock" id="theaterClock">--:--:--</span>
-        <button class="btn-primary" onclick="closeTheater()" style="background: rgba(255,255,255,0.1); border: 1px solid var(--border);">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="18" y1="6" x2="6" y2="18" />
-            <line x1="6" y1="6" x2="18" y2="18" />
-          </svg>
-          Close
-        </button>
-      </div>
-    </div>
-    <div class="theater-body" id="theaterBody">
-      <!-- Dynamically populated by app.js -->
-    </div>
-  </div>
-  
   <!-- Scripts -->
   <script src="./reader.js"></script>
   <script src="./player-embed.js"></script>

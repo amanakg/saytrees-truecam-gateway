@@ -16,7 +16,6 @@ window.onerror = function (message, source, lineno, colno, error) {
 
 let CAMERAS = [];
 const playInstances = {};
-const tplayInstances = {};
 
 function updateClock() {
   const now = new Date();
@@ -27,8 +26,6 @@ function updateClock() {
     const el = document.getElementById(`clock${cam.id}`);
     if (el) el.textContent = s;
   });
-  const tc = document.getElementById('theaterClock');
-  if (tc) tc.textContent = `${d}  ${s}`;
 }
 setInterval(updateClock, 1000);
 updateClock();
@@ -146,55 +143,15 @@ function reloadCamera(idx) {
   const cam = CAMERAS.find(c => c.id === idx);
   if (!cam) return;
   initCamera(cam);
-  if (tplayInstances[idx]) {
-    try { tplayInstances[idx].close(); } catch (e) { }
-    delete tplayInstances[idx];
-    initTheaterCamera(cam);
-  }
 }
 
 function refreshAll() {
   CAMERAS.forEach(cam => reloadCamera(cam.id));
 }
 
-function initTheaterCamera(cam) {
-  const idx = cam.id;
-  const video = document.getElementById(`tvideo${idx}`);
-  if (!video) return;
-  video.srcObject = null;
-  const reader = setupPlayer(video, cam.whepUrl, idx, null, null);
-  if (reader) tplayInstances[idx] = reader;
-}
-
-window.openTheater = function() {
-  document.getElementById('theaterOverlay').classList.add('active');
-  CAMERAS.forEach(cam => initTheaterCamera(cam));
-  const el = document.getElementById('theaterOverlay');
-  if (el.requestFullscreen) el.requestFullscreen().catch(() => { });
-};
-
-window.closeTheater = function() {
-  document.getElementById('theaterOverlay').classList.remove('active');
-  CAMERAS.forEach(cam => {
-    if (tplayInstances[cam.id]) {
-      try { tplayInstances[cam.id].close(); } catch (e) { }
-      delete tplayInstances[cam.id];
-    }
-    const v = document.getElementById(`tvideo${cam.id}`);
-    if (v) v.srcObject = null;
-  });
-  if (document.exitFullscreen) document.exitFullscreen().catch(() => { });
-};
-
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') closeTheater();
-});
-
 function renderCameraDOM() {
   const grid = document.getElementById('camGrid');
-  const theaterBody = document.getElementById('theaterBody');
   grid.innerHTML = '';
-  theaterBody.innerHTML = '';
 
   const displayCams = CAMERAS.slice(0, 8);
   document.getElementById('activeCamCount').textContent = `${displayCams.length} Active`;
@@ -250,14 +207,6 @@ function renderCameraDOM() {
       `;
       grid.appendChild(card);
 
-      const tslot = document.createElement('div');
-      tslot.className = 'theater-slot';
-      tslot.innerHTML = `
-        <video id="tvideo${idx}" autoplay muted playsinline></video>
-        <div class="cam-badge" style="position:absolute; top:12px; left:12px;" id="tlabel${idx}">${cam.name} · ${cam.deviceId}</div>
-      `;
-      theaterBody.appendChild(tslot);
-
     } else {
       const emptyCard = document.createElement('div');
       emptyCard.className = 'cam-card empty';
@@ -304,7 +253,6 @@ async function fetchMetadata() {
       renderCameraDOM();
       
       Object.keys(playInstances).forEach(k => { try{ playInstances[k].close(); } catch(e){} delete playInstances[k]; });
-      Object.keys(tplayInstances).forEach(k => { try{ tplayInstances[k].close(); } catch(e){} delete tplayInstances[k]; });
       
       CAMERAS.forEach(cam => initCamera(cam));
       isInitialized = true;
@@ -315,8 +263,6 @@ async function fetchMetadata() {
       if (matched) {
         const idx = matched.id;
         const metaDiv = document.getElementById(`meta${idx}`);
-        const tlabel = document.getElementById(`tlabel${idx}`);
-        
         if (cam.status === 'connected' && cam.metadata && cam.metadata.resolution) {
           const metaStr = `${cam.metadata.resolution} · ${cam.metadata.fps} fps · ${cam.metadata.codec.toUpperCase()}`;
           
@@ -324,15 +270,8 @@ async function fetchMetadata() {
             metaDiv.textContent = metaStr;
             metaDiv.style.display = 'block';
           }
-          
-          if (tlabel) {
-            tlabel.textContent = `${matched.name} · ${cam.id} (${metaStr})`;
-          }
         } else {
           if (metaDiv) metaDiv.style.display = 'none';
-          if (tlabel) {
-            tlabel.textContent = `${matched.name} · ${cam.id}`;
-          }
         }
       }
     });

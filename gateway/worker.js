@@ -148,7 +148,16 @@ class AccountPage {
         console.error(`[Browser Error] ${err.toString()}`);
       });
 
-
+      // Block unnecessary resources to save RAM
+      await this.page.setRequestInterception(true);
+      this.page.on('request', (req) => {
+        const type = req.resourceType();
+        if (['image', 'font', 'stylesheet'].includes(type)) {
+          req.abort();
+        } else {
+          req.continue();
+        }
+      });
       await this.page.goto('http://localhost:8000/', { waitUntil: 'networkidle2' });
 
       console.log(`[AccountPage:${this.accountEmail}] Running login sequence...`);

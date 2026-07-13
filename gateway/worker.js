@@ -195,13 +195,13 @@ class AccountPage {
         // This saves 20-80MB per page since we don't need to display video visually.
         CanvasRenderingContext2D.prototype.drawImage = function(){};
         CanvasRenderingContext2D.prototype.putImageData = function(){};
-        CanvasRenderingContext2D.prototype.createImageData = function(){ return { data: [] }; };
+        CanvasRenderingContext2D.prototype.createImageData = function(){ return { data: { set: function(){} } }; };
         window.requestAnimationFrame = () => {};
         HTMLCanvasElement.prototype.getContext = function() {
             return {
                 drawImage(){},
                 putImageData(){},
-                createImageData(){ return { data: [] }; },
+                createImageData(){ return { data: { set: function(){} } }; },
                 clearRect(){},
                 fillRect(){}
             };

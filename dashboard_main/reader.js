@@ -615,11 +615,41 @@ class MediaMTXWebRTCReader {
       return;
     }
 
-    if (
-      this.#pc.connectionState === "failed" ||
-      this.#pc.connectionState === "closed"
-    ) {
+    if (this.#pc.connectionState === "closed") {
       this.#handleError("peer connection closed");
+    } else if (this.#pc.connectionState === "failed") {
+      // Try ICE restart before fully tearing down the WHEP session.
+      // This avoids the visible error when ICE credentials expire (~10min).
+      if (this.#sessionUrl !== null && this.#pc !== null) {
+        this.#pc.restartIce();
+        this.#pc.createOffer({ iceRestart: true })
+          .then((offer) => {
+            if (this.#state !== "running" || this.#pc === null) return;
+            this.#offerData = MediaMTXWebRTCReader.#parseOffer(offer.sdp);
+            return this.#pc.setLocalDescription(offer).then(() => {
+              return fetch(this.#sessionUrl, {
+                method: "PATCH",
+                headers: {
+                  "Content-Type": "application/trickle-ice-sdpfrag",
+                  "If-Match": "*",
+                },
+                body: `a=ice-ufrag:${this.#offerData.iceUfrag}\r\na=ice-pwd:${this.#offerData.icePwd}\r\n`,
+              });
+            });
+          })
+          .then((res) => {
+            if (res && res.status !== 204 && res.status !== 200) {
+              // ICE restart rejected by server, fall back to full reconnect
+              this.#handleError("peer connection failed");
+            }
+          })
+          .catch(() => {
+            // ICE restart failed, fall back to full reconnect
+            this.#handleError("peer connection failed");
+          });
+      } else {
+        this.#handleError("peer connection failed");
+      }
     }
   }
 

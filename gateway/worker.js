@@ -345,10 +345,10 @@ class CameraBridge {
 
     this.wss.on('connection', (socket) => {
       this.activeSocket = socket;
-      this.log('Browser SDK routed WS connection established!');
+      this.log('Browser SDK routed WS connection established! Waiting for frames...');
       this.lastFrameTime = Date.now();
       this.firstMessageLogged = false; // Reset on each new connection
-      db.updateStatus(this.deviceId, 'connected', new Date().toISOString());
+      // Do NOT set status='connected' here. Wait for the first frame.
 
       // Reset isInitSent on the new WS so FFmpeg gets the init payload after reconnect
       socket.isInitSent = false;
@@ -373,6 +373,7 @@ class CameraBridge {
         if (!this.firstMessageLogged) {
           this.firstMessageLogged = true;
           this.log(`First message received! Type: ${typeof message}, IsBuffer: ${Buffer.isBuffer(message)}, Byte0: ${message[0]}`);
+          db.updateStatus(this.deviceId, 'connected', new Date().toISOString()); // Officially connected!
           if (Buffer.isBuffer(message)) {
             this.log(`First 20 bytes: ${message.slice(0, 20).toString('hex')}`);
             this.log(`Stringified: ${message.toString('utf8').substring(0, 100)}`);
@@ -644,6 +645,11 @@ async function boot() {
     WHERE ingest_tier = 'bridge' AND worker_id = ?
     ORDER BY created_at
   `).all(workerId);
+
+  // Reset all statuses to offline at boot to clear out stale 'connected' states from previous runs
+  try {
+    db.db.prepare(`UPDATE devices SET status = 'offline' WHERE worker_id = ?`).run(workerId);
+  } catch(e) {}
 
   console.log(`[Worker:${workerId}] Found ${allBridgeDevices.length} devices assigned in registry.`);
   if (allBridgeDevices.length === 0) {

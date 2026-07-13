@@ -262,11 +262,13 @@ async function fetchMetadata() {
     data.forEach(cam => {
       const matched = CAMERAS.find(c => c.deviceId === cam.id);
       if (matched) {
-        if (cam.status === 'connected') activeCount++;
+        // Only count truly streaming cameras (connected + has valid resolution from FFmpeg)
+        const isStreaming = cam.status === 'connected' && cam.metadata && cam.metadata.resolution && cam.metadata.resolution !== 'unknown';
+        if (isStreaming) activeCount++;
         
         const idx = matched.id;
         const metaDiv = document.getElementById(`meta${idx}`);
-        if (cam.status === 'connected' && cam.metadata && cam.metadata.resolution) {
+        if (isStreaming) {
           const metaStr = `${cam.metadata.resolution} · ${cam.metadata.fps} fps · ${cam.metadata.codec.toUpperCase()}`;
           
           if (metaDiv) {

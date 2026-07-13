@@ -564,6 +564,11 @@ class MediaMTXWebRTCReader {
       if (this.#state !== "running") return;
       console.log("[MediaMTXWebRTCReader] Proactive session renewal (9.5min reached)");
 
+      if (this.#conf.onRenewRequired !== undefined) {
+        this.#conf.onRenewRequired();
+        return;
+      }
+
       // Silently tear down the current WHEP session
       if (this.#keepaliveInterval !== null) {
         window.clearInterval(this.#keepaliveInterval);

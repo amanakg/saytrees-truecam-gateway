@@ -15,7 +15,7 @@
  * @returns {MediaMTXWebRTCReader|null} The WebRTC WHEP reader instance, or null if initialization fails.
  */
 function mountCameraPlayer(videoEl, whepUrl, options = {}) {
-  const { onLive, onError, onDebug } = options;
+  const { onLive, onError, onDebug, onRenewRequired } = options;
   
   const logDebug = (msg, type = 'info') => {
     if (onDebug) {
@@ -51,6 +51,9 @@ function mountCameraPlayer(videoEl, whepUrl, options = {}) {
           .catch((e) => {
             logDebug(`Autoplay blocked or interrupted: ${e.message}`, 'warn');
           });
+      },
+      onRenewRequired: () => {
+        if (onRenewRequired) onRenewRequired();
       }
     });
 

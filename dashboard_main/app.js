@@ -30,7 +30,7 @@ function updateClock() {
 setInterval(updateClock, 1000);
 updateClock();
 
-function setupPlayer(videoEl, whepUrl, camIdx, onLive, onError) {
+function setupPlayer(videoEl, whepUrl, camIdx, onLive, onError, onRenewRequired) {
   addDebugLog(`Connecting WebRTC for Cam ${camIdx}...`);
   return mountCameraPlayer(videoEl, whepUrl, {
     onLive: onLive,
@@ -40,7 +40,8 @@ function setupPlayer(videoEl, whepUrl, camIdx, onLive, onError) {
     },
     onDebug: (msg, type) => {
       addDebugLog(`Cam ${camIdx}: ${msg}`, type);
-    }
+    },
+    onRenewRequired: onRenewRequired
   });
 }
 
@@ -73,11 +74,24 @@ function initCamera(cam) {
   setCamState(idx, 'connecting');
 
   if (playInstances[idx]) {
-    try { playInstances[idx].close(); } catch (e) { }
+    try { playInstances[idx].activeReader?.close(); } catch (e) { }
+    try { playInstances[idx].standbyReader?.close(); } catch (e) { }
     delete playInstances[idx];
   }
 
-  const video = document.getElementById(`video${idx}`);
+  const state = {
+    activeLayer: 'a',
+    activeReader: null,
+    standbyReader: null,
+  };
+  playInstances[idx] = state;
+
+  connectLayer(cam, state, 'a');
+}
+
+function connectLayer(cam, state, layer) {
+  const idx = cam.id;
+  const video = document.getElementById(`video${idx}_${layer}`);
   if (!video) return;
   video.srcObject = null;
 
@@ -85,18 +99,63 @@ function initCamera(cam) {
     video,
     cam.whepUrl,
     idx,
-    () => setCamState(idx, 'live'),
-    (err) => {
-      setCamState(idx, 'error', err);
-      setTimeout(() => {
-        if (playInstances[idx] === undefined) {
-          initCamera(cam);
+    () => {
+      // onLive
+      if (state.activeLayer !== layer) {
+        // Swap visibility
+        const oldLayer = state.activeLayer;
+        const newVideo = document.getElementById(`video${idx}_${layer}`);
+        const oldVideo = document.getElementById(`video${idx}_${oldLayer}`);
+        
+        newVideo.className = 'cam-video active';
+        oldVideo.className = 'cam-video standby';
+        oldVideo.srcObject = null;
+        
+        if (state.activeReader) {
+           state.activeReader.close();
         }
-      }, 7000);
+        state.activeReader = reader;
+        state.standbyReader = null;
+        state.activeLayer = layer;
+        addDebugLog(`Cam ${idx}: Seamless swap completed`, 'success');
+      } else {
+         setCamState(idx, 'live');
+      }
+    },
+    (err) => {
+      // onError
+      if (state.activeLayer !== layer) {
+         addDebugLog(`Cam ${idx}: Background swap failed, retrying...`, 'warn');
+         state.standbyReader = null;
+         setTimeout(() => {
+           if (playInstances[idx] === state && state.activeLayer !== layer) {
+             connectLayer(cam, state, layer);
+           }
+         }, 5000);
+      } else {
+         setCamState(idx, 'error', err);
+         setTimeout(() => {
+           if (playInstances[idx] === state) {
+             initCamera(cam);
+           }
+         }, 7000);
+      }
+    },
+    () => {
+      // onRenewRequired
+      if (state.activeLayer === layer) {
+        addDebugLog(`Cam ${idx}: Starting background connection for seamless swap...`);
+        const nextLayer = layer === 'a' ? 'b' : 'a';
+        connectLayer(cam, state, nextLayer);
+      }
     }
   );
 
-  if (reader) playInstances[idx] = reader;
+  if (state.activeLayer === layer) {
+     state.activeReader = reader;
+  } else {
+     state.standbyReader = reader;
+  }
 }
 
 let expandedCam = null;
@@ -163,11 +222,12 @@ function renderCameraDOM() {
       const card = document.createElement('div');
       card.className = 'cam-card';
       card.id = `card${idx}`;
-      card.ondblclick = () => goFullscreen(`video${idx}`);
+      card.ondblclick = () => goFullscreen(`container${idx}`);
 
       card.innerHTML = `
-        <div class="video-container">
-          <video id="video${idx}" autoplay muted playsinline></video>
+        <div class="video-container" id="container${idx}">
+          <video id="video${idx}_a" class="cam-video active" autoplay muted playsinline></video>
+          <video id="video${idx}_b" class="cam-video standby" autoplay muted playsinline></video>
           
           <div class="overlay-tl">
             <div class="status-indicator" id="dot${idx}"></div>
@@ -198,7 +258,7 @@ function renderCameraDOM() {
             <button class="btn-icon" title="Expand" id="expandBtn${idx}" onclick="toggleExpand(${idx})">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
             </button>
-            <button class="btn-icon" title="Fullscreen" onclick="goFullscreen('video${idx}')">
+            <button class="btn-icon" title="Fullscreen" onclick="goFullscreen('container${idx}')">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="8 3 3 3 3 8"/><polyline points="21 8 21 3 16 3"/><polyline points="3 16 3 21 8 21"/><polyline points="16 21 21 21 21 16"/></svg>
             </button>
           </div>
@@ -251,7 +311,11 @@ async function fetchMetadata() {
       
       renderCameraDOM();
       
-      Object.keys(playInstances).forEach(k => { try{ playInstances[k].close(); } catch(e){} delete playInstances[k]; });
+      Object.keys(playInstances).forEach(k => { 
+        try{ playInstances[k].activeReader?.close(); } catch(e){} 
+        try{ playInstances[k].standbyReader?.close(); } catch(e){} 
+        delete playInstances[k]; 
+      });
       
       CAMERAS.forEach(cam => initCamera(cam));
       isInitialized = true;

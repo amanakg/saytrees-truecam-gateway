@@ -157,18 +157,25 @@ class AccountPage {
         document.getElementById('login-password').value = pwd;
         document.getElementById('loginBtn').click();
 
-        await new Promise((resolve) => {
+        await new Promise((resolve, reject) => {
+          let attempts = 0;
           const interval = setInterval(() => {
+            attempts++;
             if (window.access_token) {
               clearInterval(interval);
               resolve();
+            } else if (attempts > 60) {
+              clearInterval(interval);
+              reject(new Error("Timeout waiting for access_token"));
             }
           }, 500);
         });
 
         // Wait for device list to load as a sign of full SDK readiness
         let loaded = false;
-        while (!loaded) {
+        let listAttempts = 0;
+        while (!loaded && listAttempts < 15) {
+          listAttempts++;
           try {
             await getDeviceList();
             loaded = true;
@@ -176,6 +183,21 @@ class AccountPage {
             await new Promise(r => setTimeout(r, 2000));
           }
         }
+        if (!loaded) throw new Error("Timeout waiting for getDeviceList");
+
+        // Override rendering APIs to prevent the SDK from allocating canvas buffers
+        // This saves 20-80MB per page since we don't need to display video visually.
+        CanvasRenderingContext2D.prototype.drawImage = function(){};
+        CanvasRenderingContext2D.prototype.putImageData = function(){};
+        window.requestAnimationFrame = () => {};
+        HTMLCanvasElement.prototype.getContext = function() {
+            return {
+                drawImage(){},
+                putImageData(){},
+                clearRect(){},
+                fillRect(){}
+            };
+        };
 
         // Install Global Multiplexed Interceptor
         window.__wsConnections = window.__wsConnections || {};
@@ -632,7 +654,12 @@ async function boot() {
       '--disable-webgl',
       '--disable-3d-apis',
       '--disable-accelerated-2d-canvas',
-      '--disable-gpu-compositing'
+      '--disable-gpu-compositing',
+      '--disable-domain-reliability',
+      '--disable-print-preview',
+      '--disable-reading-from-canvas',
+      '--disable-client-side-phishing-detection',
+      '--memory-pressure-off'
     ]
   });
 

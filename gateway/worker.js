@@ -310,7 +310,11 @@ class CameraBridge {
       this.activeSocket = socket;
       this.log('Browser SDK routed WS connection established!');
       this.lastFrameTime = Date.now();
+      this.firstMessageLogged = false; // Reset on each new connection
       db.updateStatus(this.deviceId, 'connected', new Date().toISOString());
+
+      // Reset isInitSent on the new WS so FFmpeg gets the init payload after reconnect
+      socket.isInitSent = false;
 
       if (this.watchdogInterval) clearInterval(this.watchdogInterval);
 
@@ -458,8 +462,9 @@ class CameraBridge {
       this.reconnectTimeout = null;
       try {
         this.isReconnecting = true;
-        this.log('Attempting to reconnect (reloading shared page to reset SDK state)...');
-        await this.accountManager.reloadPage();
+        this.log('Attempting to reconnect (re-injecting camera connection only, no page reload)...');
+        // Do NOT reload the page — that takes 10-30s and causes the 40s restart loop.
+        // Simply re-issue the ConnectDevice command into the existing live page.
         await this.connectCameraInPage();
       } catch (err) {
         this.error(`Reconnection failed: ${err.message}`);

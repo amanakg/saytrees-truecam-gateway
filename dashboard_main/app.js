@@ -154,7 +154,6 @@ function renderCameraDOM() {
   grid.innerHTML = '';
 
   const displayCams = CAMERAS.slice(0, 8);
-  document.getElementById('activeCamCount').textContent = `${displayCams.length} Active`;
 
   for (let i = 0; i < 8; i++) {
     if (i < displayCams.length) {
@@ -258,9 +257,13 @@ async function fetchMetadata() {
       isInitialized = true;
     }
 
+    let activeCount = 0;
+
     data.forEach(cam => {
       const matched = CAMERAS.find(c => c.deviceId === cam.id);
       if (matched) {
+        if (cam.status === 'connected') activeCount++;
+        
         const idx = matched.id;
         const metaDiv = document.getElementById(`meta${idx}`);
         if (cam.status === 'connected' && cam.metadata && cam.metadata.resolution) {
@@ -275,6 +278,9 @@ async function fetchMetadata() {
         }
       }
     });
+    
+    const countEl = document.getElementById('activeCamCount');
+    if (countEl) countEl.textContent = `${activeCount} Active`;
   } catch (e) {
     console.warn('Failed to fetch camera metadata:', e.message);
   }

@@ -174,16 +174,21 @@ class AccountPage {
         // Wait for device list to load as a sign of full SDK readiness
         let loaded = false;
         let listAttempts = 0;
+        let devices = [];
         while (!loaded && listAttempts < 15) {
           listAttempts++;
           try {
-            await getDeviceList();
+            let res = await window.ConnectApi.getDeviceList();
+            if (res && res.data && res.data.data && res.data.data.list) {
+              devices = res.data.data.list.map(d => d.deviceParams);
+            }
             loaded = true;
           } catch (err) {
             await new Promise(r => setTimeout(r, 2000));
           }
         }
         if (!loaded) throw new Error("Timeout waiting for getDeviceList");
+        window.__deviceList = devices; // Pass back to Node
 
         // Override rendering APIs to prevent the SDK from allocating canvas buffers
         // This saves 20-80MB per page since we don't need to display video visually.
@@ -228,8 +233,37 @@ class AccountPage {
             console.log('[Browser] Global Multiplexed Interceptor installed (or re-installed).');
           }
         }, 100);
-
       }, this.accountEmail, this.accountPassword);
+
+      // Auto-sync cameras from Tuya SDK back to the local database
+      const deviceList = await this.page.evaluate(() => window.__deviceList || []);
+      if (deviceList.length > 0) {
+        console.log(`[AccountPage:${this.accountEmail}] Found ${deviceList.length} cameras. Auto-syncing to registry...`);
+        for (const dev of deviceList) {
+          if (!dev.deviceUuid || !dev.deviceSecret) continue;
+          const existing = db.getDevice(dev.deviceUuid);
+          if (!existing) {
+            console.log(`[AccountPage] Found new camera: ${dev.deviceUuid}. Registering...`);
+            const streamName = `cam_${dev.deviceUuid.slice(-6).toLowerCase()}`;
+            try {
+              db.upsertDevice({
+                deviceId: dev.deviceUuid,
+                deviceSecret: dev.deviceSecret,
+                nickname: dev.nickname || `Camera_${dev.deviceUuid.slice(-6)}`,
+                clientId: 'enarxi',
+                accountEmail: this.accountEmail,
+                accountPasswordRef: this.accountPassword,
+                streamName: streamName,
+                workerId: workerId,
+                status: 'offline'
+              });
+              console.log(`[AccountPage] Registered new camera ${dev.deviceUuid} mapped to stream: live/${streamName}`);
+            } catch (e) {
+              console.error(`[AccountPage] Failed to register camera ${dev.deviceUuid}:`, e.message);
+            }
+          }
+        }
+      }
 
       this.isReady = true;
       console.log(`[AccountPage:${this.accountEmail}] Shared page is ready!`);

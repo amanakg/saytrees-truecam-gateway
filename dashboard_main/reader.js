@@ -522,20 +522,22 @@ class MediaMTXWebRTCReader {
         this.#conf.url,
       ).toString();
 
-      // Start WHEP keepalive: send empty PATCH every 25s to prevent
-      // MediaMTX from timing out the session (default timeout is ~30-60s)
+      // Start WHEP keepalive: send a valid minimal trickle-ICE SDP fragment every 25s.
+      // MediaMTX rejects empty PATCH bodies and closes sessions after its webrtcSessionTimeout
+      // (default 10 minutes). A valid fragment with the current ICE credentials keeps it alive.
       if (this.#keepaliveInterval !== null) {
         window.clearInterval(this.#keepaliveInterval);
       }
       this.#keepaliveInterval = window.setInterval(() => {
-        if (this.#sessionUrl === null || this.#state !== "running") return;
+        if (this.#sessionUrl === null || this.#state !== "running" || this.#offerData === null) return;
+        const fragment = `a=ice-ufrag:${this.#offerData.iceUfrag}\r\na=ice-pwd:${this.#offerData.icePwd}\r\n`;
         fetch(this.#sessionUrl, {
           method: "PATCH",
           headers: {
             "Content-Type": "application/trickle-ice-sdpfrag",
             "If-Match": "*",
           },
-          body: "",
+          body: fragment,
         }).catch(() => {}); // Silently ignore keepalive failures
       }, 25000);
 

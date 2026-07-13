@@ -314,6 +314,7 @@ class MediaMTXWebRTCReader {
   #queuedCandidates = [];
   #restartTimeout = null;
   #keepaliveInterval = null;
+  #sessionRenewalTimeout = null;
   #nonAdvertisedCodecs = [];
 
   constructor(conf) {
@@ -327,6 +328,11 @@ class MediaMTXWebRTCReader {
     if (this.#restartTimeout !== null) {
       window.clearTimeout(this.#restartTimeout);
       this.#restartTimeout = null;
+    }
+
+    if (this.#sessionRenewalTimeout !== null) {
+      window.clearTimeout(this.#sessionRenewalTimeout);
+      this.#sessionRenewalTimeout = null;
     }
 
     if (this.#keepaliveInterval !== null) {
@@ -354,17 +360,20 @@ class MediaMTXWebRTCReader {
   /** @param {string} err */
   #handleError(err) {
     if (this.#state === "running") {
+      if (this.#sessionRenewalTimeout !== null) {
+        window.clearTimeout(this.#sessionRenewalTimeout);
+        this.#sessionRenewalTimeout = null;
+      }
+      if (this.#keepaliveInterval !== null) {
+        window.clearInterval(this.#keepaliveInterval);
+        this.#keepaliveInterval = null;
+      }
       if (this.#pc !== null) {
         this.#pc.close();
         this.#pc = null;
       }
 
       this.#offerData = null;
-
-      if (this.#keepaliveInterval !== null) {
-        window.clearInterval(this.#keepaliveInterval);
-        this.#keepaliveInterval = null;
-      }
 
       if (this.#sessionUrl !== null) {
         fetch(this.#sessionUrl, {
@@ -545,6 +554,39 @@ class MediaMTXWebRTCReader {
     });
   }
 
+  // Proactively renew the WHEP session before MediaMTX's hardcoded 10-min timeout.
+  // Fires at 9m30s to give 30s of margin. Does NOT trigger the error callback.
+  #scheduleSessionRenewal() {
+    if (this.#sessionRenewalTimeout !== null) {
+      window.clearTimeout(this.#sessionRenewalTimeout);
+    }
+    this.#sessionRenewalTimeout = window.setTimeout(() => {
+      if (this.#state !== "running") return;
+      console.log("[MediaMTXWebRTCReader] Proactive session renewal (9.5min reached)");
+
+      // Silently tear down the current WHEP session
+      if (this.#keepaliveInterval !== null) {
+        window.clearInterval(this.#keepaliveInterval);
+        this.#keepaliveInterval = null;
+      }
+      if (this.#pc !== null) {
+        this.#pc.onconnectionstatechange = null; // Suppress state change callbacks during close
+        this.#pc.ontrack = null;
+        this.#pc.close();
+        this.#pc = null;
+      }
+      if (this.#sessionUrl !== null) {
+        fetch(this.#sessionUrl, { method: "DELETE" }).catch(() => {});
+        this.#sessionUrl = null;
+      }
+      this.#offerData = null;
+      this.#queuedCandidates = [];
+
+      // Reconnect silently — no error shown to user
+      this.#start();
+    }, 9.5 * 60 * 1000); // 9 minutes 30 seconds
+  }
+
   #setAnswer(answer) {
     if (this.#state !== "running") {
       throw new Error("closed");
@@ -566,6 +608,9 @@ class MediaMTXWebRTCReader {
           this.#sendLocalCandidates(this.#queuedCandidates);
           this.#queuedCandidates = [];
         }
+
+        // Schedule proactive renewal at 9m30s before MediaMTX kills the session at 10m
+        this.#scheduleSessionRenewal();
       });
   }
 

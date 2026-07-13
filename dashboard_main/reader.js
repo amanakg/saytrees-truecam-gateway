@@ -313,6 +313,7 @@ class MediaMTXWebRTCReader {
   #sessionUrl = null;
   #queuedCandidates = [];
   #restartTimeout = null;
+  #keepaliveInterval = null;
   #nonAdvertisedCodecs = [];
 
   constructor(conf) {
@@ -326,6 +327,11 @@ class MediaMTXWebRTCReader {
     if (this.#restartTimeout !== null) {
       window.clearTimeout(this.#restartTimeout);
       this.#restartTimeout = null;
+    }
+
+    if (this.#keepaliveInterval !== null) {
+      window.clearInterval(this.#keepaliveInterval);
+      this.#keepaliveInterval = null;
     }
 
     if (this.#pc !== null) {
@@ -354,6 +360,11 @@ class MediaMTXWebRTCReader {
       }
 
       this.#offerData = null;
+
+      if (this.#keepaliveInterval !== null) {
+        window.clearInterval(this.#keepaliveInterval);
+        this.#keepaliveInterval = null;
+      }
 
       if (this.#sessionUrl !== null) {
         fetch(this.#sessionUrl, {
@@ -510,6 +521,23 @@ class MediaMTXWebRTCReader {
         res.headers.get("location"),
         this.#conf.url,
       ).toString();
+
+      // Start WHEP keepalive: send empty PATCH every 25s to prevent
+      // MediaMTX from timing out the session (default timeout is ~30-60s)
+      if (this.#keepaliveInterval !== null) {
+        window.clearInterval(this.#keepaliveInterval);
+      }
+      this.#keepaliveInterval = window.setInterval(() => {
+        if (this.#sessionUrl === null || this.#state !== "running") return;
+        fetch(this.#sessionUrl, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/trickle-ice-sdpfrag",
+            "If-Match": "*",
+          },
+          body: "",
+        }).catch(() => {}); // Silently ignore keepalive failures
+      }, 25000);
 
       return res.text();
     });

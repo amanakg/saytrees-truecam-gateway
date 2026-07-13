@@ -95,6 +95,8 @@ function connectLayer(cam, state, layer) {
   if (!video) return;
   video.srcObject = null;
 
+  let isSwapped = false;
+
   const reader = setupPlayer(
     video,
     cam.whepUrl,
@@ -115,6 +117,7 @@ function connectLayer(cam, state, layer) {
         };
         
         const finishSwap = () => {
+          isSwapped = true;
           newVideo.removeEventListener('timeupdate', onTimeUpdate);
           if (state.activeLayer === layer) return; // Already swapped
           
@@ -176,6 +179,23 @@ function connectLayer(cam, state, layer) {
      state.activeReader = reader;
   } else {
      state.standbyReader = reader;
+     
+     // Watchdog: If the background player hangs for 15 seconds without swapping, roll it back
+     setTimeout(() => {
+       if (!isSwapped && playInstances[idx] === state && state.activeLayer !== layer) {
+         addDebugLog(`Cam ${idx}: Background connection timed out. Rolling back...`, 'warn');
+         if (state.standbyReader) {
+           try { state.standbyReader.close(); } catch(e){}
+           state.standbyReader = null;
+         }
+         // Retry the background connection in 30 seconds
+         setTimeout(() => {
+           if (playInstances[idx] === state && state.activeLayer !== layer) {
+             connectLayer(cam, state, layer);
+           }
+         }, 30000);
+       }
+     }, 15000);
   }
 }
 

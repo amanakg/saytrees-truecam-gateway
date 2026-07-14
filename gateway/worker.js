@@ -145,8 +145,11 @@ class AccountPage {
         const text = msg.text();
         console.log(`[Browser] ${text}`);
         
-        if (text.includes('Error code:-13') || text.includes('Error code:-15')) {
-          console.error(`[Worker Warning] Tuya SDK reported an error for a camera (${text}). The connection will automatically retry, but this may indicate the camera is offline or has reached its viewing limit.`);
+        if (text.includes('Error code:-13')) {
+          console.error(`[Worker Warning] Tuya SDK reported an error for a camera (${text}). The connection will automatically retry, but this may indicate the camera is offline or its token rotated.`);
+        } else if (text.includes('Error code:-15')) {
+          console.error(`[Worker Fatal] Tuya WASM SDK reached maximum internal connections (${text}). Forcing worker restart to flush C++ memory leak and self-heal!`);
+          process.exit(1);
         }
       });
       this.page.on('pageerror', (err) => {

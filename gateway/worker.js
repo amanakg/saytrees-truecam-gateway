@@ -366,8 +366,8 @@ class CameraBridge {
 
       this.watchdogInterval = setInterval(() => {
         const idleTime = Date.now() - this.lastFrameTime;
-        // Increase threshold to 15s to tolerate camera-side 4G jitter or P2P buffering bursts
-        const threshold = this.ffmpegProcess ? 15000 : 45000;
+        // Increase threshold to 45s to tolerate camera-side 4G jitter or P2P buffering bursts
+        const threshold = this.ffmpegProcess ? 45000 : 60000;
         if (idleTime > threshold) {
           this.warn(`Stream idle for ${idleTime / 1000}s. Triggering reconnect...`);
           clearInterval(this.watchdogInterval);

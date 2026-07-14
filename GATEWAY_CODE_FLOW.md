@@ -81,9 +81,11 @@ Instead of relying on clunky, high-latency RTSP players, the custom dashboard us
 ---
 
 ## Resilience & Auto-Recovery
-**File:** `gateway/worker.js`
+**Files:** `gateway/worker.js`, `sdk_dist/play.js`, and `dashboard_main/app.js`
 
-Because the system relies on intercepting closed ecosystems, it has several built-in self-healing mechanisms:
-- **Frame Watchdog:** The WebSocket server checks the `idleTime` between frames. If 5 seconds pass with no frames (e.g., if the physical camera is turned off), the worker kills the FFmpeg process and initiates a reset.
-- **SDK Reset:** To reconnect cleanly when a camera comes back online, `AccountPage.reloadPage()` completely closes the shared headless browser tab and recreates it. This flushes the TrueCam SDK's state and forces a clean connection.
-- **Dynamic Polling:** A loop checks the database every 30 seconds for newly assigned cameras, automatically spawning new headless browser commands and FFmpeg pipelines in the background without requiring a server restart.
+Because the system relies on intercepting closed ecosystems and bypassing third-party limits, it has several highly-tuned self-healing mechanisms:
+
+- **10-Minute P2P Auto-Recovery:** Tuya Cloud intentionally kills WebRTC/P2P streams every 10 minutes to save bandwidth. To counter this, `worker.js` runs a continuous watchdog timer. If frames stop arriving for exactly **10 seconds**, it assumes the 10-minute limit was hit, kills the stuck FFmpeg process, and silently re-injects the connection command (`ConnectDevice`) into the shared page.
+- **Tuya Web SDK Memory Leak Fix:** The official Tuya SDK (`play.js`) has a bug where it fails to garbage collect closed sessions (`sessionList`), eventually leading to `Error code:-15` (Too Many Connections). We modified the SDK to bypass object creation if the session already exists, and we forcefully delete Chromium's cache (`/tmp/puppeteer_cache_worker_*`) on worker boot to ensure the patched SDK is always loaded.
+- **Fatal Error Self-Healing:** If the Tuya cloud completely rotates API tokens or blocks the session (`Connect failed Error code:-13` or `-15`), the worker instantly detects this fatal error via the Chrome console interceptor and calls `process.exit(1)`. `systemd` then safely reboots the worker, guaranteeing a fresh Tuya login and brand-new tokens in just a few seconds.
+- **Seamless Frontend Swapping:** On the dashboard (`app.js`), if MediaMTX detects a stream drop, the UI does not just go black. Instead, it creates a *hidden* secondary video player (`newVideo`). It repeatedly tries to reconnect in the background. Once the stream is successfully recovered and the new video element fires `timeupdate` (proving a frame was rendered), the UI instantly swaps the hidden player to the front and destroys the old one, resulting in a completely seamless recovery experience.

@@ -146,8 +146,7 @@ class AccountPage {
         console.log(`[Browser] ${text}`);
         
         if (text.includes('Error code:-13') || text.includes('Error code:-15')) {
-          console.error(`[Worker Fatal] Tuya token expired or SDK connection limit reached (${text}). Forcing worker restart to self-heal!`);
-          process.exit(1);
+          console.error(`[Worker Warning] Tuya SDK reported an error for a camera (${text}). The connection will automatically retry, but this may indicate the camera is offline or has reached its viewing limit.`);
         }
       });
       this.page.on('pageerror', (err) => {

@@ -634,14 +634,16 @@ class CameraBridge {
                       if (result === 0) {
                         console.log(`[Worker] SDK login succeeded for ${api_conn.deviceid || api_conn.ip}, manually opening stream...`);
                         if (typeof Player !== 'undefined' && Player.OpenStream) {
-                          Player.OpenStream(api_conn.deviceid, "", 0, 0, 0);
+                          // Change streamid to 1 (Main Stream)
+                          Player.OpenStream(api_conn.deviceid, "", 0, 1, 0);
                         }
                       }
                     };
                   }
                   
                   // Use connectType=0 (Connect only, we will open stream manually on login)
-                  Player.ConnectDevice(formattedDevId, "", "admin", devSecret, 0, 80, 0, 0, 0, "wss", window.onResolv);
+                  // Pass streamid=1 here as well just to be consistent
+                  Player.ConnectDevice(formattedDevId, "", "admin", devSecret, 0, 80, 0, 0, 1, "wss", window.onResolv);
                 }
                 resolve();
               }, 100);

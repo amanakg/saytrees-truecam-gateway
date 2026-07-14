@@ -624,8 +624,24 @@ class CameraBridge {
                   }
                   
                   console.log(`[Worker] ConnectDevice called for ${devId} at ${Date.now()}`);
-                  // Use connectType=1 (Connect and open stream automatically) to prevent race conditions
-                  Player.ConnectDevice(formattedDevId, "", "admin", devSecret, 0, 80, 1, 0, 0, "wss", window.onResolv);
+                  
+                  // Hook into onloginresult to explicitly OpenStream
+                  if (typeof ConnectApi !== 'undefined' && !window.__loginHooked) {
+                    window.__loginHooked = true;
+                    const originalLogin = ConnectApi.onloginresult;
+                    ConnectApi.onloginresult = function(api_conn, result) {
+                      if (originalLogin) originalLogin.apply(this, arguments);
+                      if (result === 0) {
+                        console.log(`[Worker] SDK login succeeded for ${api_conn.deviceid || api_conn.ip}, manually opening stream...`);
+                        if (typeof Player !== 'undefined' && Player.OpenStream) {
+                          Player.OpenStream(api_conn.deviceid, "", 0, 0, 0);
+                        }
+                      }
+                    };
+                  }
+                  
+                  // Use connectType=0 (Connect only, we will open stream manually on login)
+                  Player.ConnectDevice(formattedDevId, "", "admin", devSecret, 0, 80, 0, 0, 0, "wss", window.onResolv);
                 }
                 resolve();
               }, 100);
@@ -638,16 +654,16 @@ class CameraBridge {
               if (closeFired || sdkWs.readyState === WebSocket.CLOSED) {
                 clearInterval(checkInterval);
                 clearTimeout(timeout);
-                proceedToConnect();
+                setTimeout(proceedToConnect, 1000);
               }
             }, 50);
             
             let timeout = setTimeout(() => {
               clearInterval(checkInterval);
-              proceedToConnect();
+              setTimeout(proceedToConnect, 1000);
             }, 3000);
           } else {
-            proceedToConnect();
+            setTimeout(proceedToConnect, 1000);
           }
         });
       }, this.deviceId, this.deviceSecret, this.wsPort);

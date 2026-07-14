@@ -142,7 +142,13 @@ class AccountPage {
       });
 
       this.page.on('console', (msg) => {
-        console.log(`[Browser] ${msg.text()}`);
+        const text = msg.text();
+        console.log(`[Browser] ${text}`);
+        
+        if (text.includes('Error code:-13') || text.includes('Error code:-15')) {
+          console.error(`[Worker Fatal] Tuya token expired or SDK connection limit reached (${text}). Forcing worker restart to self-heal!`);
+          process.exit(1);
+        }
       });
       this.page.on('pageerror', (err) => {
         console.error(`[Browser Error] ${err.toString()}`);
@@ -366,8 +372,8 @@ class CameraBridge {
 
       this.watchdogInterval = setInterval(() => {
         const idleTime = Date.now() - this.lastFrameTime;
-        // Increase threshold to 45s to tolerate camera-side 4G jitter or P2P buffering bursts
-        const threshold = this.ffmpegProcess ? 45000 : 60000;
+        // Reduce threshold to 10s to recover instantly when the Tuya 10-minute P2P rotation drops the stream
+        const threshold = this.ffmpegProcess ? 10000 : 15000;
         if (idleTime > threshold) {
           this.warn(`Stream idle for ${idleTime / 1000}s. Triggering reconnect...`);
           clearInterval(this.watchdogInterval);
@@ -740,8 +746,19 @@ async function boot() {
   const puppeteerModule = await import('puppeteer');
   const puppeteer = puppeteerModule.default || puppeteerModule;
   
+  const cacheDir = `/tmp/puppeteer_cache_worker_${workerId}`;
+  if (fs.existsSync(cacheDir)) {
+    try {
+      fs.rmSync(cacheDir, { recursive: true, force: true });
+      console.log(`[Worker:${workerId}] Cleared Chromium cache at ${cacheDir}`);
+    } catch (e) {
+      console.error(`[Worker:${workerId}] Failed to clear cache: ${e.message}`);
+    }
+  }
+
   browserInstance = await puppeteer.launch({
-    headless: true,
+    headless: "new",
+    userDataDir: cacheDir,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',

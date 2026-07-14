@@ -567,45 +567,89 @@ class CameraBridge {
       let isConnectCommandSent = false;
 
       await page.evaluate((devId, devSecret, wsPort) => {
-        window.__wsConnections = window.__wsConnections || {};
+        return new Promise((resolve) => {
+          window.__wsConnections = window.__wsConnections || {};
 
-        // Clean up previous connection for this device
-        if (window.__wsConnections[devId]) {
-          try { window.__wsConnections[devId].close(); } catch (e) { }
-        }
-        if (window.Player && window.Player.DisConnectDevice) {
-          try { window.Player.DisConnectDevice(devId); } catch (e) { }
-        }
+          // Clean up previous connection for this device
+          if (window.__wsConnections[devId]) {
+            try { window.__wsConnections[devId].close(); } catch (e) { }
+            delete window.__wsConnections[devId];
+          }
 
-        // Establish WS pipe for frames
-        const wsUrl = `ws://localhost:${wsPort}`;
-        const ws = new WebSocket(wsUrl);
-        ws.binaryType = 'arraybuffer';
-        window.__wsConnections[devId] = ws;
+          let oldWsClose = window.WebSocket.prototype.close;
+          let closeFired = false;
+          let sdkWs = null;
 
-        ws.onopen = () => {
-          setTimeout(() => {
-            if (typeof Player !== 'undefined' && Player.ConnectDevice) {
-              const devSelect = document.getElementById("dev_id");
-              let formattedDevId = "";
-              if (devSelect) {
-                for (let i = 0; i < devSelect.options.length; i++) {
-                  if (devSelect.options[i].text === devId) {
-                    devSelect.value = devSelect.options[i].value;
-                    formattedDevId = devSelect.options[i].value;
-                    break;
+          // Intercept the close call to track when the SDK's websocket actually finishes closing
+          window.WebSocket.prototype.close = function(code, reason) {
+            sdkWs = this;
+            this.addEventListener('close', () => {
+              closeFired = true;
+            });
+            return oldWsClose.apply(this, arguments);
+          };
+
+          if (window.Player && window.Player.DisConnectDevice) {
+            try { window.Player.DisConnectDevice(devId); } catch (e) { }
+          }
+          
+          // Restore original WebSocket close immediately
+          window.WebSocket.prototype.close = oldWsClose;
+
+          const proceedToConnect = () => {
+            // Establish WS pipe for frames
+            const wsUrl = `ws://localhost:${wsPort}`;
+            const ws = new WebSocket(wsUrl);
+            ws.binaryType = 'arraybuffer';
+            window.__wsConnections[devId] = ws;
+
+            ws.onopen = () => {
+              setTimeout(() => {
+                if (typeof Player !== 'undefined' && Player.ConnectDevice) {
+                  const devSelect = document.getElementById("dev_id");
+                  let formattedDevId = "";
+                  if (devSelect) {
+                    for (let i = 0; i < devSelect.options.length; i++) {
+                      if (devSelect.options[i].text === devId) {
+                        devSelect.value = devSelect.options[i].value;
+                        formattedDevId = devSelect.options[i].value;
+                        break;
+                      }
+                    }
                   }
+                  if (!formattedDevId) {
+                    console.log("[Browser] ERROR: devId not found in dropdown list!");
+                    resolve();
+                    return;
+                  }
+                  
+                  console.log(`[Worker] ConnectDevice called for ${devId} at ${Date.now()}`);
+                  // Use connectType=1 (Connect and open stream automatically) to prevent race conditions
+                  Player.ConnectDevice(formattedDevId, "", "admin", devSecret, 0, 80, 1, 0, 1, "wss", window.onResolv);
                 }
+                resolve();
+              }, 100);
+            };
+            ws.onerror = () => resolve();
+          };
+
+          if (sdkWs && sdkWs.readyState !== WebSocket.CLOSED) {
+            let checkInterval = setInterval(() => {
+              if (closeFired || sdkWs.readyState === WebSocket.CLOSED) {
+                clearInterval(checkInterval);
+                clearTimeout(timeout);
+                proceedToConnect();
               }
-              if (!formattedDevId) {
-                console.log("[Browser] ERROR: devId not found in dropdown list!");
-                return;
-              }
-              // Use connectType=1 (Connect and open stream automatically) to prevent race conditions
-              Player.ConnectDevice(formattedDevId, "", "admin", devSecret, 0, 80, 1, 0, 1, "wss", window.onResolv);
-            }
-          }, 500);
-        };
+            }, 50);
+            
+            let timeout = setTimeout(() => {
+              clearInterval(checkInterval);
+              proceedToConnect();
+            }, 3000);
+          } else {
+            proceedToConnect();
+          }
+        });
       }, this.deviceId, this.deviceSecret, this.wsPort);
 
     } catch (err) {

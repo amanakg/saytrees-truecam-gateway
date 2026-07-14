@@ -103,48 +103,71 @@ function connectLayer(cam, state, layer) {
     idx,
     () => {
       // onLive
-      if (state.activeLayer !== layer) {
-        // Swap visibility
-        const oldLayer = state.activeLayer;
-        const newVideo = document.getElementById(`video${idx}_${layer}`);
-        const oldVideo = document.getElementById(`video${idx}_${oldLayer}`);
-        
-        // Wait for actual frames to render before hiding the old video
-        let frameCount = 0;
-        const onTimeUpdate = () => {
-          frameCount++;
-          if (frameCount > 2) finishSwap(); // Wait for 2 frames
-        };
-        
-        const finishSwap = () => {
-          isSwapped = true;
-          newVideo.removeEventListener('timeupdate', onTimeUpdate);
-          if (state.activeLayer === layer) return; // Already swapped
+      let frameCount = 0;
+      let isRendered = false;
+      const onTimeUpdate = () => {
+        frameCount++;
+        if (frameCount > 2 && !isRendered) {
+          isRendered = true;
+          video.removeEventListener('timeupdate', onTimeUpdate);
           
-          newVideo.className = 'cam-video active';
-          oldVideo.className = 'cam-video standby';
-          oldVideo.srcObject = null;
-          
-          if (state.activeReader) {
-             state.activeReader.close();
+          if (state.activeLayer !== layer) {
+            // Background swap successful
+            isSwapped = true;
+            const oldLayer = state.activeLayer;
+            const oldVideo = document.getElementById(`video${idx}_${oldLayer}`);
+            
+            video.className = 'cam-video active';
+            oldVideo.className = 'cam-video standby';
+            oldVideo.srcObject = null;
+            
+            if (state.activeReader) {
+               state.activeReader.close();
+            }
+            state.activeReader = reader;
+            state.standbyReader = null;
+            state.activeLayer = layer;
+            addDebugLog(`Cam ${idx}: Seamless swap completed`, 'success');
+          } else {
+            // Primary connection successful
+            setCamState(idx, 'live');
           }
-          state.activeReader = reader;
-          state.standbyReader = null;
-          state.activeLayer = layer;
-          addDebugLog(`Cam ${idx}: Seamless swap completed`, 'success');
-        };
-
-        newVideo.addEventListener('timeupdate', onTimeUpdate);
-        
+        }
+      };
+      
+      video.addEventListener('timeupdate', onTimeUpdate);
+      
+      if (state.activeLayer !== layer) {
         // Ensure new video is in front but old video is still visible behind it
-        newVideo.style.opacity = '1';
-        newVideo.style.zIndex = '3';
-        
-        // Fallback timeout in case timeupdate doesn't fire fast enough
-        setTimeout(finishSwap, 4000);
-      } else {
-         setCamState(idx, 'live');
+        video.style.opacity = '1';
+        video.style.zIndex = '3';
       }
+      
+      // Watchdog: If timeupdate doesn't fire, the track is stuck/blank
+      setTimeout(() => {
+        if (!isRendered) {
+          video.removeEventListener('timeupdate', onTimeUpdate);
+          if (state.activeLayer !== layer) {
+            addDebugLog(`Cam ${idx}: New layer connected but failed to render frames. Aborting swap.`, 'error');
+            reader.close();
+            state.standbyReader = null;
+            // Retry the background connection
+            setTimeout(() => {
+               if (playInstances[idx] === state && state.activeLayer !== layer) {
+                 connectLayer(cam, state, layer);
+               }
+            }, 3000);
+          } else {
+            addDebugLog(`Cam ${idx}: Primary connection failed to render frames. Retrying...`, 'error');
+            setCamState(idx, 'error', 'No media frames received');
+            setTimeout(() => {
+              if (playInstances[idx] === state) {
+                initCamera(cam);
+              }
+            }, 3000);
+          }
+        }
+      }, 7000);
     },
     (err) => {
       // onError

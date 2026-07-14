@@ -577,18 +577,27 @@ class MediaMTXWebRTCReader {
       if (this.#pc !== null) {
         this.#pc.onconnectionstatechange = null; // Suppress state change callbacks during close
         this.#pc.ontrack = null;
+        this.#pc.onicecandidate = null;
+        this.#pc.ondatachannel = null;
         this.#pc.close();
         this.#pc = null;
       }
-      if (this.#sessionUrl !== null) {
-        fetch(this.#sessionUrl, { method: "DELETE" }).catch(() => {});
-        this.#sessionUrl = null;
-      }
-      this.#offerData = null;
-      this.#queuedCandidates = [];
+      
+      const restartSequence = async () => {
+        if (this.#sessionUrl !== null) {
+          try { await fetch(this.#sessionUrl, { method: "DELETE" }); } catch (e) {}
+          this.#sessionUrl = null;
+          // Wait briefly for MediaMTX to flush the old WHEP session state
+          await new Promise(r => setTimeout(r, 500));
+        }
+        this.#offerData = null;
+        this.#queuedCandidates = [];
 
-      // Reconnect silently — no error shown to user
-      this.#start();
+        // Reconnect silently — no error shown to user
+        this.#start();
+      };
+      
+      restartSequence();
     }, 9.5 * 60 * 1000); // 9 minutes 30 seconds
   }
 

@@ -79,6 +79,22 @@ function initCamera(cam) {
     delete playInstances[idx];
   }
 
+  // Strictly reset DOM state to prevent old swapped layers from obscuring the new stream
+  const videoA = document.getElementById(`video${idx}_a`);
+  const videoB = document.getElementById(`video${idx}_b`);
+  if (videoA) {
+    videoA.className = 'cam-video active';
+    videoA.style.opacity = '1';
+    videoA.style.zIndex = '1';
+    videoA.srcObject = null;
+  }
+  if (videoB) {
+    videoB.className = 'cam-video standby';
+    videoB.style.opacity = '0';
+    videoB.style.zIndex = '0';
+    videoB.srcObject = null;
+  }
+
   const state = {
     activeLayer: 'a',
     activeReader: null,

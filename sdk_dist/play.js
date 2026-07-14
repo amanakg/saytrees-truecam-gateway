@@ -509,11 +509,11 @@ Player.ConnectDevice = function (devid, ip, user, pwd, winindex, port, connectTy
     if (session == null) {
       session = ConnectApi.create(winindex, user, pwd, connectType, channel, streamid);
       sessionList.push(session);
-      session.isRecord = false
-      session.startRecord = false
+      session.isRecord = false;
+      session.startRecord = false;
       session.recordObject = {};
-      bConnect = true;
     }
+    bConnect = true;
     var ngwPort = 80;
     if (bConnect) {
       if (wss == "wss") {
@@ -609,23 +609,27 @@ Player.DisConnectDevice = function (deviceid, ip) {
     let session = GetSessionById(deviceid);
     if (session) {
       ConnectApi.close_socket(session);
+      /* Do not remove from sessionList to prevent memory leaks in the underlying SDK when reconnecting
       for (let i = 0; i < sessionList.length; i++) {
         if (sessionList[i].deviceid === session.deviceid) {
           sessionList.splice(i, 1);
           break;
         }
       }
+      */
     }
   } else if (ip) {
     let session = GetSessionByIp(ip);
     if (session) {
       ConnectApi.close_socket(session);
+      /* Do not remove from sessionList to prevent memory leaks in the underlying SDK when reconnecting
       for (let i = 0; i < sessionList.length; i++) {
         if (sessionList[i].ip === session.ip) {
           sessionList.splice(i, 1);
           break;
         }
       }
+      */
     }
   }
 };

@@ -625,7 +625,7 @@ class CameraBridge {
                   
                   console.log(`[Worker] ConnectDevice called for ${devId} at ${Date.now()}`);
                   // Use connectType=1 (Connect and open stream automatically) to prevent race conditions
-                  Player.ConnectDevice(formattedDevId, "", "admin", devSecret, 0, 80, 1, 0, 1, "wss", window.onResolv);
+                  Player.ConnectDevice(formattedDevId, "", "admin", devSecret, 0, 80, 1, 0, 0, "wss", window.onResolv);
                 }
                 resolve();
               }, 100);

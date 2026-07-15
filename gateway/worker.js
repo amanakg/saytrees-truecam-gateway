@@ -56,6 +56,7 @@ function serveFile(filePath, res, isSdk = false) {
 
 // Global servers - only bind if not already running on host
 let sdkHttpServer = null;
+let globalWsServer = null;
 
 function startHttpServers() {
   sdkHttpServer = http.createServer((req, res) => {
@@ -75,6 +76,28 @@ function startHttpServers() {
   sdkHttpServer.listen(8000, () => {
     console.log(`[Worker:${workerId}] Web SDK served at http://localhost:8000/`);
   });
+
+  globalWsServer = new ws.Server({ port: baseWsPort });
+  globalWsServer.on('connection', (socket, req) => {
+    try {
+      const url = new URL(req.url, `http://localhost`);
+      const deviceId = url.searchParams.get('deviceId');
+      if (!deviceId) {
+        socket.close();
+        return;
+      }
+      const bridge = activeBridges.find(b => b.deviceId === deviceId);
+      if (bridge) {
+        bridge.handleWebSocketConnection(socket);
+      } else {
+        console.warn(`[GlobalWS] Rejected connection for unknown device: ${deviceId}`);
+        socket.close();
+      }
+    } catch (e) {
+      socket.close();
+    }
+  });
+  console.log(`[Worker:${workerId}] Unified WebSocket IPC Server listening on port ${baseWsPort}`);
 }
 
 // Locate FFmpeg path dynamically
@@ -119,6 +142,7 @@ class AccountPage {
     this.page = null;
     this.isReady = false;
     this.initializationPromise = null;
+    this.reconnectCount = 0;
   }
 
   async getReadyPage() {
@@ -352,17 +376,12 @@ class CameraBridge {
     this.log('Starting bridge controller...');
     db.updateStatus(this.deviceId, 'connecting');
 
-    this.setupWebSocketServer();
     await this.connectCameraInPage();
   }
 
-  setupWebSocketServer() {
-    this.wss = new ws.Server({ port: this.wsPort });
-    this.log(`WebSocket server listening...`);
-
-    this.wss.on('connection', (socket) => {
-      this.activeSocket = socket;
-      this.log('Browser SDK routed WS connection established! Waiting for frames...');
+  handleWebSocketConnection(socket) {
+    this.activeSocket = socket;
+    this.log('Browser SDK routed WS connection established! Waiting for frames...');
       this.lastFrameTime = Date.now();
       this.firstMessageLogged = false; // Reset on each new connection
       // Do NOT set status='connected' here. Wait for the first frame.
@@ -432,7 +451,6 @@ class CameraBridge {
           this.triggerReconnect();
         }
       });
-    });
   }
 
   startFfmpeg(initData) {
@@ -517,6 +535,15 @@ class CameraBridge {
       this.reconnectTimeout = null;
       try {
         this.isReconnecting = true;
+        
+        if (this.accountManager.reconnectCount > 800) {
+          this.log('Reconnection count exceeded limit. Proactively reloading shared page to clear SDK memory leak...');
+          await this.accountManager.reloadPage();
+          this.accountManager.reconnectCount = 0;
+        }
+        
+        this.accountManager.reconnectCount++;
+
         this.log('Attempting to reconnect (re-injecting camera connection only, no page reload)...');
         // Do NOT reload the page — that takes 10-30s and causes the 40s restart loop.
         // Simply re-issue the ConnectDevice command into the existing live page.
@@ -606,7 +633,7 @@ class CameraBridge {
 
           const proceedToConnect = () => {
             // Establish WS pipe for frames
-            const wsUrl = `ws://localhost:${wsPort}`;
+            const wsUrl = `ws://localhost:${wsPort}/?deviceId=${devId}`;
             const ws = new WebSocket(wsUrl);
             ws.binaryType = 'arraybuffer';
             window.__wsConnections[devId] = ws;
@@ -706,10 +733,7 @@ class CameraBridge {
       }, this.deviceId);
     } catch (e) { }
 
-    if (this.wss) {
-      await new Promise((resolve) => this.wss.close(() => resolve()));
-      this.wss = null;
-    }
+    try { if (this.activeSocket) this.activeSocket.close(); } catch (e) { }
   }
 }
 
@@ -811,7 +835,7 @@ async function boot() {
     }
 
     const index = allBridgeGlobal.findIndex(d => d.device_id === device.device_id);
-    const wsPort = baseWsPort + (index >= 0 ? index : 0);
+    const wsPort = baseWsPort; // Unified WS port
 
     const bridge = new CameraBridge(device, wsPort, accountPage);
     activeBridges.push(bridge);
@@ -897,7 +921,7 @@ async function boot() {
           }
 
           const index = globalDevices.findIndex(d => d.device_id === device.device_id);
-          const wsPort = baseWsPort + (index >= 0 ? index : 0);
+          const wsPort = baseWsPort; // Unified WS port
 
           const bridge = new CameraBridge(device, wsPort, accountPage);
           activeBridges.push(bridge);

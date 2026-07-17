@@ -143,6 +143,7 @@ class AccountPage {
     this.isReady = false;
     this.initializationPromise = null;
     this.reconnectCount = 0;
+    this.connectQueue = Promise.resolve();
   }
 
   async getReadyPage() {
@@ -195,10 +196,10 @@ class AccountPage {
             if (bridge) {
               bridge.consecutiveP2pFailures++;
               console.warn(`[${failingDeviceId}] Consecutive P2P -13 failures: ${bridge.consecutiveP2pFailures}`);
-              // After 3 back-to-back -13 errors the WASM P2P state for this device is
+              // After 15 back-to-back -13 errors the WASM P2P state for this device is
               // stuck. A soft re-inject won't fix it — only a full page reload will.
-              if (bridge.consecutiveP2pFailures >= 3) {
-                console.error(`[${failingDeviceId}] 3 consecutive -13 failures. Forcing full page reload to reset Tuya WASM state...`);
+              if (bridge.consecutiveP2pFailures >= 15) {
+                console.error(`[${failingDeviceId}] 15 consecutive -13 failures. Forcing full page reload to reset Tuya WASM state...`);
                 bridge.consecutiveP2pFailures = 0;
                 if (!this.isReloading) {
                   this.reloadPage().catch(e => console.error(`[AccountPage] reloadPage error: ${e.message}`));
@@ -446,8 +447,8 @@ class CameraBridge {
 
       this.watchdogInterval = setInterval(() => {
         const idleTime = Date.now() - this.lastFrameTime;
-        // Reduce threshold to 10s to recover instantly when the Tuya 10-minute P2P rotation drops the stream
-        const threshold = this.ffmpegProcess ? 10000 : 15000;
+        // Increase threshold to 20s to allow for Tuya 10-minute P2P rotation without triggering false disconnects. 60s for first frame.
+        const threshold = this.ffmpegProcess ? 20000 : 60000;
         if (idleTime > threshold) {
           this.warn(`Stream idle for ${idleTime / 1000}s. Triggering reconnect...`);
           clearInterval(this.watchdogInterval);
@@ -653,11 +654,13 @@ class CameraBridge {
 
       const page = await this.accountManager.getReadyPage();
 
-      this.log('Injecting connection command into shared page...');
-      let isConnectCommandSent = false;
+      this.log('Injecting connection command into shared page (queued)...');
 
-      await page.evaluate((devId, devSecret, wsPort) => {
-        return new Promise((resolve) => {
+      // Serialize concurrent injections to prevent Tuya WASM state corruption
+      this.accountManager.connectQueue = this.accountManager.connectQueue.then(async () => {
+        this.log('Queue turn reached, executing injection...');
+        await page.evaluate((devId, devSecret, wsPort) => {
+          return new Promise((resolve) => {
           window.__wsConnections = window.__wsConnections || {};
 
           // Clean up previous connection for this device
@@ -760,6 +763,14 @@ class CameraBridge {
           }
         });
       }, this.deviceId, this.deviceSecret, this.wsPort);
+      
+      // Wait 2.5s for WASM to settle before allowing the next camera in the queue to inject
+      await new Promise(r => setTimeout(r, 2500));
+      }).catch(err => {
+        this.error(`Queued injection failed: ${err.message}`);
+      });
+      
+      await this.accountManager.connectQueue;
 
     } catch (err) {
       throw err;

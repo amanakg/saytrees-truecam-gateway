@@ -195,13 +195,17 @@ class AccountPage {
             if (bridge) {
               bridge.consecutiveP2pFailures++;
               console.warn(`[${failingDeviceId}] Consecutive P2P -13 failures: ${bridge.consecutiveP2pFailures}`);
-              // After 3 back-to-back -13 errors the WASM P2P state for this device is
+              // After 15 back-to-back -13 errors the WASM P2P state for this device is
               // stuck. A soft re-inject won't fix it — only a full page reload will.
-              if (bridge.consecutiveP2pFailures >= 3) {
-                console.error(`[${failingDeviceId}] 3 consecutive -13 failures. Forcing full page reload to reset Tuya WASM state...`);
-                bridge.consecutiveP2pFailures = 0;
-                if (!this.isReloading) {
-                  this.reloadPage().catch(e => console.error(`[AccountPage] reloadPage error: ${e.message}`));
+              if (bridge.consecutiveP2pFailures >= 15) {
+                if (bridge.hasEverConnected) {
+                  console.error(`[${failingDeviceId}] 15 consecutive -13 failures on an active camera. Forcing full page reload to reset Tuya WASM state...`);
+                  bridge.consecutiveP2pFailures = 0;
+                  if (!this.isReloading) {
+                    this.reloadPage().catch(e => console.error(`[AccountPage] reloadPage error: ${e.message}`));
+                  }
+                } else {
+                  console.warn(`[${failingDeviceId}] Camera offline. Skipping page reload to protect other active cameras.`);
                 }
               }
             }
@@ -415,6 +419,8 @@ class CameraBridge {
 
     // Track consecutive P2P -13 failures for this specific device
     this.consecutiveP2pFailures = 0;
+    this.hasEverConnected = false;
+    this.reconnectAttempts = 0;
     // Track how many frames we received after the last connect (used to reset the -13 counter)
     this.framesReceivedSinceConnect = 0;
 
@@ -446,8 +452,8 @@ class CameraBridge {
 
       this.watchdogInterval = setInterval(() => {
         const idleTime = Date.now() - this.lastFrameTime;
-        // Reduce threshold to 10s to recover instantly when the Tuya 10-minute P2P rotation drops the stream
-        const threshold = this.ffmpegProcess ? 10000 : 15000;
+        // Two-tier watchdog: 60s grace period for first frame, 20s during active stream
+        const threshold = this.ffmpegProcess ? 20000 : 60000;
         if (idleTime > threshold) {
           this.warn(`Stream idle for ${idleTime / 1000}s. Triggering reconnect...`);
           clearInterval(this.watchdogInterval);
@@ -465,6 +471,8 @@ class CameraBridge {
           db.updateStatus(this.deviceId, 'connected', new Date().toISOString()); // Officially connected!
           // Reset the -13 counter — we're actually getting frames now
           this.consecutiveP2pFailures = 0;
+          this.reconnectAttempts = 0;
+          this.hasEverConnected = true;
           if (Buffer.isBuffer(message)) {
             this.log(`First 20 bytes: ${message.slice(0, 20).toString('hex')}`);
             this.log(`Stringified: ${message.toString('utf8').substring(0, 100)}`);
@@ -583,7 +591,11 @@ class CameraBridge {
     if (this.isStopping || this.isReconnecting) return;
     if (this.reconnectTimeout) return;
 
-    this.log('Scheduling reconnection in 2000ms...');
+    this.reconnectAttempts++;
+    // Exponential backoff up to 30s for offline cameras to prevent spamming the shared page
+    const backoffMs = Math.min(30000, 2000 * Math.pow(1.5, this.reconnectAttempts - 1));
+    
+    this.log(`Scheduling reconnection in ${Math.round(backoffMs)}ms (attempt ${this.reconnectAttempts})...`);
     db.updateStatus(this.deviceId, 'reconnecting');
 
     this.reconnectTimeout = setTimeout(async () => {

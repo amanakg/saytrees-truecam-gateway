@@ -143,6 +143,22 @@ class AccountPage {
     this.isReady = false;
     this.initializationPromise = null;
     this.reconnectCount = 0;
+    this.injectLock = Promise.resolve();
+  }
+
+  async runSerializedInjection(injectionFn) {
+    return new Promise((resolve, reject) => {
+      this.injectLock = this.injectLock.then(async () => {
+        try {
+          await injectionFn();
+          resolve();
+        } catch (e) {
+          reject(e);
+        }
+        // Enforce 2.5s delay between injections to protect WASM state
+        await new Promise(r => setTimeout(r, 2500));
+      });
+    });
   }
 
   async getReadyPage() {
@@ -665,10 +681,12 @@ class CameraBridge {
 
       const page = await this.accountManager.getReadyPage();
 
-      this.log('Injecting connection command into shared page...');
-      let isConnectCommandSent = false;
-
-      await page.evaluate((devId, devSecret, wsPort) => {
+      this.log('Queueing connection command to prevent WASM collision...');
+      
+      await this.accountManager.runSerializedInjection(async () => {
+        this.log('Injecting connection command into shared page...');
+        
+        await page.evaluate((devId, devSecret, wsPort) => {
         return new Promise((resolve) => {
           window.__wsConnections = window.__wsConnections || {};
 
@@ -759,19 +777,20 @@ class CameraBridge {
               if (closeFired || sdkWs.readyState === WebSocket.CLOSED) {
                 clearInterval(checkInterval);
                 clearTimeout(timeout);
-                setTimeout(proceedToConnect, 1000);
+                setTimeout(proceedToConnect, 100);
               }
             }, 50);
             
             let timeout = setTimeout(() => {
               clearInterval(checkInterval);
-              setTimeout(proceedToConnect, 1000);
+              setTimeout(proceedToConnect, 100);
             }, 3000);
           } else {
-            setTimeout(proceedToConnect, 1000);
+            setTimeout(proceedToConnect, 100);
           }
         });
       }, this.deviceId, this.deviceSecret, this.wsPort);
+      }); // End of serialized injection block
 
     } catch (err) {
       throw err;

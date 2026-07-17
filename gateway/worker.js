@@ -165,15 +165,63 @@ class AccountPage {
         await dialog.accept();
       });
 
-      this.page.on('console', (msg) => {
+      this.page.on('console', async (msg) => {
         const text = msg.text();
         console.log(`[Browser] ${text}`);
-        
+
+        // Detect conn list growth — Tuya SDK leaks internal connection objects.
+        // If the count exceeds 20, the WASM heap is likely corrupt; force a page reload.
+        const connListMatch = text.match(/conn list is\s+(\d+)/);
+        if (connListMatch) {
+          const connCount = parseInt(connListMatch[1], 10);
+          if (connCount > 20) {
+            console.error(`[Worker Fatal] Tuya SDK conn list has grown to ${connCount} (memory leak). Forcing shared page reload to flush WASM state...`);
+            // Avoid re-entrant reloads
+            if (!this.isReloading) {
+              this.reloadPage().catch(e => console.error(`[AccountPage] reloadPage error: ${e.message}`));
+            }
+            return;
+          }
+        }
+
+        // Per-device -13 tracking: extract device ID from the log line
         if (text.includes('Error code:-13')) {
+          const m = text.match(/\[logs\]\[p2p\]([A-Z0-9]+) Connect failed/);
+          const failingDeviceId = m ? m[1] : null;
           console.error(`[Worker Warning] Tuya SDK reported an error for a camera (${text}). The connection will automatically retry, but this may indicate the camera is offline or its token rotated.`);
+
+          if (failingDeviceId) {
+            const bridge = activeBridges.find(b => b.deviceId === failingDeviceId);
+            if (bridge) {
+              bridge.consecutiveP2pFailures++;
+              console.warn(`[${failingDeviceId}] Consecutive P2P -13 failures: ${bridge.consecutiveP2pFailures}`);
+              // After 3 back-to-back -13 errors the WASM P2P state for this device is
+              // stuck. A soft re-inject won't fix it — only a full page reload will.
+              if (bridge.consecutiveP2pFailures >= 3) {
+                console.error(`[${failingDeviceId}] 3 consecutive -13 failures. Forcing full page reload to reset Tuya WASM state...`);
+                bridge.consecutiveP2pFailures = 0;
+                if (!this.isReloading) {
+                  this.reloadPage().catch(e => console.error(`[AccountPage] reloadPage error: ${e.message}`));
+                }
+              }
+            }
+          }
         } else if (text.includes('Error code:-15')) {
           console.error(`[Worker Fatal] Tuya WASM SDK reached maximum internal connections (${text}). Forcing worker restart to flush C++ memory leak and self-heal!`);
           process.exit(1);
+        }
+
+        // Any successful SDK login resets the -13 counter for that device
+        if (text.includes('Connect succeeded') || text.includes('login succeeded')) {
+          const m = text.match(/\[logs\]\[p2p\]([A-Z0-9]+)(Connect|login)/);
+          if (m) {
+            const successDeviceId = m[1];
+            const bridge = activeBridges.find(b => b.deviceId === successDeviceId);
+            if (bridge && bridge.consecutiveP2pFailures > 0) {
+              console.log(`[${successDeviceId}] P2P succeeded — resetting consecutive failure counter.`);
+              bridge.consecutiveP2pFailures = 0;
+            }
+          }
         }
       });
       this.page.on('pageerror', (err) => {
@@ -365,6 +413,11 @@ class CameraBridge {
     this.isStopping = false;
     this.isReconnecting = false;
 
+    // Track consecutive P2P -13 failures for this specific device
+    this.consecutiveP2pFailures = 0;
+    // Track how many frames we received after the last connect (used to reset the -13 counter)
+    this.framesReceivedSinceConnect = 0;
+
     this.logPrefix = `[${this.nickname}][Port:${this.wsPort}]`;
   }
 
@@ -410,6 +463,8 @@ class CameraBridge {
           this.firstMessageLogged = true;
           this.log(`First message received! Type: ${typeof message}, IsBuffer: ${Buffer.isBuffer(message)}, Byte0: ${message[0]}`);
           db.updateStatus(this.deviceId, 'connected', new Date().toISOString()); // Officially connected!
+          // Reset the -13 counter — we're actually getting frames now
+          this.consecutiveP2pFailures = 0;
           if (Buffer.isBuffer(message)) {
             this.log(`First 20 bytes: ${message.slice(0, 20).toString('hex')}`);
             this.log(`Stringified: ${message.toString('utf8').substring(0, 100)}`);
@@ -659,25 +714,26 @@ class CameraBridge {
                   }
                   
                   console.log(`[Worker] ConnectDevice called for ${devId} at ${Date.now()}`);
-                  
-                  // Hook into onloginresult to explicitly OpenStream
-                  if (typeof ConnectApi !== 'undefined' && !window.__loginHooked) {
-                    window.__loginHooked = true;
+
+                  // Hook into onloginresult to explicitly OpenStream.
+                  // Use a per-device key so this re-applies correctly after a page reload.
+                  const hookKey = `__loginHooked_${devId}`;
+                  if (typeof ConnectApi !== 'undefined' && !window[hookKey]) {
+                    window[hookKey] = true;
                     const originalLogin = ConnectApi.onloginresult;
                     ConnectApi.onloginresult = function(api_conn, result) {
                       if (originalLogin) originalLogin.apply(this, arguments);
                       if (result === 0) {
                         console.log(`[Worker] SDK login succeeded for ${api_conn.deviceid || api_conn.ip}, manually opening stream...`);
                         if (typeof Player !== 'undefined' && Player.OpenStream) {
-                          // Change streamid to 1 (Main Stream)
+                          // Main stream (streamid=1)
                           Player.OpenStream(api_conn.deviceid, "", 0, 1, 0);
                         }
                       }
                     };
                   }
-                  
+
                   // Use connectType=0 (Connect only, we will open stream manually on login)
-                  // Pass streamid=1 here as well just to be consistent
                   Player.ConnectDevice(formattedDevId, "", "admin", devSecret, 0, 80, 0, 0, 1, "wss", window.onResolv);
                 }
                 resolve();

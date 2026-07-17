@@ -377,8 +377,11 @@ class AccountPage {
         }
       }
 
-      this.isReady = true;
+      console.log(`[AccountPage:${this.accountEmail}] Waiting 8s for Tuya WASM SDK to finish internal initialization...`);
+      await new Promise(r => setTimeout(r, 8000));
+
       console.log(`[AccountPage:${this.accountEmail}] Shared page is ready!`);
+      this.isReady = true;
     } catch (err) {
       this.initializationPromise = null;
       throw err;

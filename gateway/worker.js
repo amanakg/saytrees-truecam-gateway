@@ -741,15 +741,33 @@ class CameraBridge {
               return oldWsClose.apply(this, arguments);
             };
 
+            // Clean up previous connection for this device
+            if (window.__wsConnections[devId]) {
+              try { window.__wsConnections[devId].close(); } catch (e) { }
+              delete window.__wsConnections[devId];
+            }
+
+            // We need formattedDevId for DisConnectDevice, so calculate it early
+            let formattedDevId = "";
+            const devSelect = document.getElementById("dev_id");
+            if (devSelect) {
+              for (let i = 0; i < devSelect.options.length; i++) {
+                if (devSelect.options[i].text === devId) {
+                  formattedDevId = devSelect.options[i].value;
+                  break;
+                }
+              }
+            }
+
             if (window.Player && window.Player.DisConnectDevice) {
               try { 
                 if (typeof window.GetSessionById !== 'undefined' && window.ConnectApi && window.ConnectApi.close_stream) {
-                  let session = window.GetSessionById(devId);
+                  let session = window.GetSessionById(formattedDevId || devId);
                   if (session) {
                     window.ConnectApi.close_stream(session, 0, 1);
                   }
                 }
-                window.Player.DisConnectDevice(devId); 
+                window.Player.DisConnectDevice(formattedDevId || devId); 
               } catch (e) { }
             }
 
@@ -766,24 +784,12 @@ class CameraBridge {
               ws.onopen = () => {
                 setTimeout(() => {
                   if (typeof Player !== 'undefined' && Player.ConnectDevice) {
-                    const devSelect = document.getElementById("dev_id");
-                    let formattedDevId = "";
-                    if (devSelect) {
-                      for (let i = 0; i < devSelect.options.length; i++) {
-                        if (devSelect.options[i].text === devId) {
-                          devSelect.value = devSelect.options[i].value;
-                          formattedDevId = devSelect.options[i].value;
-                          break;
-                        }
-                      }
-                    }
                     if (!formattedDevId) {
                       console.log("[Browser] ERROR: devId not found in dropdown list!");
                       resolve();
                       return;
                     }
-
-                    console.log(`[Worker] ConnectDevice called for ${devId} at ${Date.now()}`);
+                    console.log(`[Browser] [Worker] ConnectDevice called for ${devId} at ${Date.now()}. Formatted: ${formattedDevId}`);
 
                     // Hook into onloginresult to explicitly OpenStream.
                     // Use a global key so this only applies once per page, preventing duplicate hooks!
@@ -803,9 +809,20 @@ class CameraBridge {
                       };
                     }
 
-                    // Use connectType=0 (Connect only, we will open stream manually on login)
-                    Player.ConnectDevice(formattedDevId, "", "admin", devSecret, 0, 80, 0, 0, 1, "wss", window.onResolv);
-                  }
+                    // Debug: Ensure the Tuya SDK is tracking the session cleanly
+                    try {
+                      if (typeof GetSessionById !== 'undefined') {
+                        const existingSession = GetSessionById(formattedDevId) || GetSessionById(devId);
+                        console.log(`[Browser] [Worker Debug] Session before ConnectDevice: ${existingSession ? 'EXISTS' : 'NULL'}`);
+                      }
+                    } catch (e) { }
+
+                    // Actually call the Tuya connection logic
+                    try {
+                      Player.ConnectDevice(formattedDevId, "", "admin", devSecret, 0, 80, 0, 0, 1, "wss", window.onResolv);
+                    } catch (e) {
+                      console.log(`[Browser] ERROR in ConnectDevice: ${e.message}`);
+                    }          }
                   resolve();
                 }, 100);
               };

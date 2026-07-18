@@ -42,13 +42,13 @@ function serveFile(filePath, res, isSdk = false) {
     if (ext === '.js') contentType = 'application/javascript';
     else if (ext === '.css') contentType = 'text/css';
     else if (ext === '.wasm') contentType = 'application/wasm';
-    
+
     const headers = { 'Content-Type': contentType };
     if (isSdk) {
       headers['Cross-Origin-Opener-Policy'] = 'same-origin';
       headers['Cross-Origin-Embedder-Policy'] = 'require-corp';
     }
-    
+
     res.writeHead(200, headers);
     res.end(content);
   });
@@ -302,18 +302,18 @@ class AccountPage {
 
         // Override rendering APIs to prevent the SDK from allocating canvas buffers
         // This saves 20-80MB per page since we don't need to display video visually.
-        CanvasRenderingContext2D.prototype.drawImage = function(){};
-        CanvasRenderingContext2D.prototype.putImageData = function(){};
-        CanvasRenderingContext2D.prototype.createImageData = function(){ return { data: { set: function(){} } }; };
-        window.requestAnimationFrame = () => {};
-        HTMLCanvasElement.prototype.getContext = function() {
-            return {
-                drawImage(){},
-                putImageData(){},
-                createImageData(){ return { data: { set: function(){} } }; },
-                clearRect(){},
-                fillRect(){}
-            };
+        CanvasRenderingContext2D.prototype.drawImage = function () { };
+        CanvasRenderingContext2D.prototype.putImageData = function () { };
+        CanvasRenderingContext2D.prototype.createImageData = function () { return { data: { set: function () { } } }; };
+        window.requestAnimationFrame = () => { };
+        HTMLCanvasElement.prototype.getContext = function () {
+          return {
+            drawImage() { },
+            putImageData() { },
+            createImageData() { return { data: { set: function () { } } }; },
+            clearRect() { },
+            fillRect() { }
+          };
         };
 
         // Install Global Multiplexed Interceptor
@@ -460,79 +460,79 @@ class CameraBridge {
   handleWebSocketConnection(socket) {
     this.activeSocket = socket;
     this.log('Browser SDK routed WS connection established! Waiting for frames...');
-      this.lastFrameTime = Date.now();
-      this.firstMessageLogged = false; // Reset on each new connection
-      // Do NOT set status='connected' here. Wait for the first frame.
+    this.lastFrameTime = Date.now();
+    this.firstMessageLogged = false; // Reset on each new connection
+    // Do NOT set status='connected' here. Wait for the first frame.
 
-      // Reset isInitSent on the new WS so FFmpeg gets the init payload after reconnect
-      socket.isInitSent = false;
+    // Reset isInitSent on the new WS so FFmpeg gets the init payload after reconnect
+    socket.isInitSent = false;
 
-      if (this.watchdogInterval) clearInterval(this.watchdogInterval);
+    if (this.watchdogInterval) clearInterval(this.watchdogInterval);
 
-      this.watchdogInterval = setInterval(() => {
-        const idleTime = Date.now() - this.lastFrameTime;
-        // Two-tier watchdog: 60s grace period for first frame, 20s during active stream
-        const threshold = this.ffmpegProcess ? 20000 : 60000;
-        if (idleTime > threshold) {
-          this.warn(`Stream idle for ${idleTime / 1000}s. Triggering reconnect...`);
-          clearInterval(this.watchdogInterval);
-          this.watchdogInterval = null;
+    this.watchdogInterval = setInterval(() => {
+      const idleTime = Date.now() - this.lastFrameTime;
+      // Two-tier watchdog: 20s grace period for first frame, 15s during active stream
+      const threshold = this.ffmpegProcess ? 15000 : 20000;
+      if (idleTime > threshold) {
+        this.warn(`Stream idle for ${idleTime / 1000}s. Triggering reconnect...`);
+        clearInterval(this.watchdogInterval);
+        this.watchdogInterval = null;
 
-          this.killFfmpeg();
-          this.triggerReconnect();
+        this.killFfmpeg();
+        this.triggerReconnect();
+      }
+    }, 1000);
+
+    socket.on('message', (message) => {
+      if (!this.firstMessageLogged) {
+        this.firstMessageLogged = true;
+        this.log(`First message received! Type: ${typeof message}, IsBuffer: ${Buffer.isBuffer(message)}, Byte0: ${message[0]}`);
+        db.updateStatus(this.deviceId, 'connected', new Date().toISOString()); // Officially connected!
+        // Reset the -13 counter — we're actually getting frames now
+        this.consecutiveP2pFailures = 0;
+        this.reconnectAttempts = 0;
+        this.hasEverConnected = true;
+        if (Buffer.isBuffer(message)) {
+          this.log(`First 20 bytes: ${message.slice(0, 20).toString('hex')}`);
+          this.log(`Stringified: ${message.toString('utf8').substring(0, 100)}`);
         }
-      }, 1000);
+      }
 
-      socket.on('message', (message) => {
-        if (!this.firstMessageLogged) {
-          this.firstMessageLogged = true;
-          this.log(`First message received! Type: ${typeof message}, IsBuffer: ${Buffer.isBuffer(message)}, Byte0: ${message[0]}`);
-          db.updateStatus(this.deviceId, 'connected', new Date().toISOString()); // Officially connected!
-          // Reset the -13 counter — we're actually getting frames now
-          this.consecutiveP2pFailures = 0;
-          this.reconnectAttempts = 0;
-          this.hasEverConnected = true;
-          if (Buffer.isBuffer(message)) {
-            this.log(`First 20 bytes: ${message.slice(0, 20).toString('hex')}`);
-            this.log(`Stringified: ${message.toString('utf8').substring(0, 100)}`);
+      if (typeof message === 'string' || (Buffer.isBuffer(message) && message[0] === 123)) {
+        try {
+          const initData = JSON.parse(message.toString());
+          if (initData.type === 'init') {
+            this.log('Received frame metadata:', initData);
+            this.lastFrameTime = Date.now();
+            const codec = (initData.enc || 'unknown').toLowerCase() === 'h265' ? 'hevc' : (initData.enc || 'unknown').toLowerCase();
+            const resolution = initData.width && initData.height ? `${initData.width}x${initData.height}` : 'unknown';
+            const fps = initData.fps || 0;
+            db.updateMetadata(this.deviceId, codec, resolution, fps);
+            this.startFfmpeg(initData);
           }
-        }
+        } catch (e) { }
+        return;
+      }
 
-        if (typeof message === 'string' || (Buffer.isBuffer(message) && message[0] === 123)) {
-          try {
-            const initData = JSON.parse(message.toString());
-            if (initData.type === 'init') {
-              this.log('Received frame metadata:', initData);
-              this.lastFrameTime = Date.now();
-              const codec = (initData.enc || 'unknown').toLowerCase() === 'h265' ? 'hevc' : (initData.enc || 'unknown').toLowerCase();
-              const resolution = initData.width && initData.height ? `${initData.width}x${initData.height}` : 'unknown';
-              const fps = initData.fps || 0;
-              db.updateMetadata(this.deviceId, codec, resolution, fps);
-              this.startFfmpeg(initData);
-            }
-          } catch (e) { }
-          return;
-        }
+      if (this.ffmpegProcess && this.ffmpegProcess.stdin.writable) {
+        this.lastFrameTime = Date.now();
+        this.ffmpegProcess.stdin.write(message);
 
-        if (this.ffmpegProcess && this.ffmpegProcess.stdin.writable) {
-          this.lastFrameTime = Date.now();
-          this.ffmpegProcess.stdin.write(message);
-
-          const now = Date.now();
-          if (now - this.lastDbUpdateTime > 30000) {
-            db.updateStatus(this.deviceId, 'connected', new Date().toISOString());
-            this.lastDbUpdateTime = now;
-          }
+        const now = Date.now();
+        if (now - this.lastDbUpdateTime > 30000) {
+          db.updateStatus(this.deviceId, 'connected', new Date().toISOString());
+          this.lastDbUpdateTime = now;
         }
-      });
+      }
+    });
 
-      socket.on('close', () => {
-        if (this.activeSocket === socket) {
-          this.log('Browser SDK page disconnected WS.');
-          this.cleanupSession();
-          this.triggerReconnect();
-        }
-      });
+    socket.on('close', () => {
+      if (this.activeSocket === socket) {
+        this.log('Browser SDK page disconnected WS.');
+        this.cleanupSession();
+        this.triggerReconnect();
+      }
+    });
   }
 
   startFfmpeg(initData) {
@@ -611,9 +611,38 @@ class CameraBridge {
     if (this.reconnectTimeout) return;
 
     this.reconnectAttempts++;
-    // Exponential backoff up to 30s for offline cameras to prevent spamming the shared page
-    const backoffMs = Math.min(30000, 2000 * Math.pow(1.5, this.reconnectAttempts - 1));
-    
+
+    // Stop reconnecting after many failures
+    if (this.reconnectAttempts >= 15 || this.consecutiveP2pFailures >= 15) {
+      this.warn(`Too many failures (${this.reconnectAttempts} attempts, ${this.consecutiveP2pFailures} P2P errors). Marking offline and pausing reconnects for 2 minutes.`);
+      this.reconnectAttempts = 0;
+      // Do not reset consecutiveP2pFailures here so the page reload logic in AccountPage can still trigger if needed
+      const backoffMs = 120000; // wait 2 minutes
+      db.updateStatus(this.deviceId, 'offline');
+      
+      this.log(`Scheduling delayed reconnection in ${Math.round(backoffMs)}ms...`);
+      this.reconnectTimeout = setTimeout(async () => {
+        this.reconnectTimeout = null;
+        try {
+          this.isReconnecting = true;
+          await this.connectCameraInPage();
+        } catch (err) {
+          this.error(`Reconnection failed: ${err.message}`);
+          this.triggerReconnect();
+        } finally {
+          this.isReconnecting = false;
+        }
+      }, backoffMs);
+      return;
+    }
+
+    // Exponential backoff up to 30s for offline cameras
+    let backoffMs = 3000;
+    if (this.reconnectAttempts === 2) backoffMs = 5000;
+    else if (this.reconnectAttempts === 3) backoffMs = 10000;
+    else if (this.reconnectAttempts === 4) backoffMs = 20000;
+    else if (this.reconnectAttempts >= 5) backoffMs = 30000;
+
     this.log(`Scheduling reconnection in ${Math.round(backoffMs)}ms (attempt ${this.reconnectAttempts})...`);
     db.updateStatus(this.deviceId, 'reconnecting');
 
@@ -621,13 +650,13 @@ class CameraBridge {
       this.reconnectTimeout = null;
       try {
         this.isReconnecting = true;
-        
-        if (this.accountManager.reconnectCount > 800) {
+
+        if (this.accountManager.reconnectCount > 150) {
           this.log('Reconnection count exceeded limit. Proactively reloading shared page to clear SDK memory leak...');
           await this.accountManager.reloadPage();
           this.accountManager.reconnectCount = 0;
         }
-        
+
         this.accountManager.reconnectCount++;
 
         this.log('Attempting to reconnect (re-injecting camera connection only, no page reload)...');
@@ -640,7 +669,7 @@ class CameraBridge {
       } finally {
         this.isReconnecting = false;
       }
-    }, 2000);
+    }, backoffMs);
   }
 
   async connectCameraInPage() {
@@ -648,10 +677,10 @@ class CameraBridge {
       if (this.deviceId.startsWith('MOCK_CAM_')) {
         this.log('Simulating connection for mock camera...');
         db.updateStatus(this.deviceId, 'connected');
-        
+
         // Spawn dummy FFmpeg load generator for testing
         this.killFfmpeg();
-        
+
         // Delay mock spawn by 20 seconds to wait for real camera to publish first
         setTimeout(() => {
           const ffmpegArgs = [
@@ -665,14 +694,14 @@ class CameraBridge {
             this.streamUrl
           ];
           this.ffmpegProcess = spawn('ffmpeg', ffmpegArgs);
-          this.ffmpegProcess.stderr.on('data', () => {}); // Ignore output to prevent spam
-          
+          this.ffmpegProcess.stderr.on('data', () => { }); // Ignore output to prevent spam
+
           this.ffmpegProcess.on('error', (err) => {
             this.error(`Mock FFmpeg error: ${err.message}`);
             this.ffmpegProcess = null;
             this.triggerReconnect();
           });
-          
+
           this.ffmpegProcess.on('close', (code) => {
             this.warn(`Mock FFmpeg exited (code=${code}), retrying...`);
             this.ffmpegProcess = null;
@@ -685,114 +714,122 @@ class CameraBridge {
       const page = await this.accountManager.getReadyPage();
 
       this.log('Queueing connection command to prevent WASM collision...');
-      
+
       await this.accountManager.runSerializedInjection(async () => {
         this.log('Injecting connection command into shared page...');
-        
+
         await page.evaluate((devId, devSecret, wsPort) => {
-        return new Promise((resolve) => {
-          window.__wsConnections = window.__wsConnections || {};
+          return new Promise((resolve) => {
+            window.__wsConnections = window.__wsConnections || {};
 
-          // Clean up previous connection for this device
-          if (window.__wsConnections[devId]) {
-            try { window.__wsConnections[devId].close(); } catch (e) { }
-            delete window.__wsConnections[devId];
-          }
+            // Clean up previous connection for this device
+            if (window.__wsConnections[devId]) {
+              try { window.__wsConnections[devId].close(); } catch (e) { }
+              delete window.__wsConnections[devId];
+            }
 
-          let oldWsClose = window.WebSocket.prototype.close;
-          let closeFired = false;
-          let sdkWs = null;
+            let oldWsClose = window.WebSocket.prototype.close;
+            let closeFired = false;
+            let sdkWs = null;
 
-          // Intercept the close call to track when the SDK's websocket actually finishes closing
-          window.WebSocket.prototype.close = function(code, reason) {
-            sdkWs = this;
-            this.addEventListener('close', () => {
-              closeFired = true;
-            });
-            return oldWsClose.apply(this, arguments);
-          };
+            // Intercept the close call to track when the SDK's websocket actually finishes closing
+            window.WebSocket.prototype.close = function (code, reason) {
+              sdkWs = this;
+              this.addEventListener('close', () => {
+                closeFired = true;
+              });
+              return oldWsClose.apply(this, arguments);
+            };
 
-          if (window.Player && window.Player.DisConnectDevice) {
-            try { window.Player.DisConnectDevice(devId); } catch (e) { }
-          }
-          
-          // Restore original WebSocket close immediately
-          window.WebSocket.prototype.close = oldWsClose;
-
-          const proceedToConnect = () => {
-            // Establish WS pipe for frames
-            const wsUrl = `ws://localhost:${wsPort}/?deviceId=${devId}`;
-            const ws = new WebSocket(wsUrl);
-            ws.binaryType = 'arraybuffer';
-            window.__wsConnections[devId] = ws;
-
-            ws.onopen = () => {
-              setTimeout(() => {
-                if (typeof Player !== 'undefined' && Player.ConnectDevice) {
-                  const devSelect = document.getElementById("dev_id");
-                  let formattedDevId = "";
-                  if (devSelect) {
-                    for (let i = 0; i < devSelect.options.length; i++) {
-                      if (devSelect.options[i].text === devId) {
-                        devSelect.value = devSelect.options[i].value;
-                        formattedDevId = devSelect.options[i].value;
-                        break;
-                      }
-                    }
+            if (window.Player && window.Player.DisConnectDevice) {
+              try { 
+                if (typeof window.GetSessionById !== 'undefined' && window.ConnectApi && window.ConnectApi.close_stream) {
+                  let session = window.GetSessionById(devId);
+                  if (session) {
+                    window.ConnectApi.close_stream(session, 0, 1);
                   }
-                  if (!formattedDevId) {
-                    console.log("[Browser] ERROR: devId not found in dropdown list!");
-                    resolve();
-                    return;
-                  }
-                  
-                  console.log(`[Worker] ConnectDevice called for ${devId} at ${Date.now()}`);
+                }
+                window.Player.DisConnectDevice(devId); 
+              } catch (e) { }
+            }
 
-                  // Hook into onloginresult to explicitly OpenStream.
-                  // Use a per-device key so this re-applies correctly after a page reload.
-                  const hookKey = `__loginHooked_${devId}`;
-                  if (typeof ConnectApi !== 'undefined' && !window[hookKey]) {
-                    window[hookKey] = true;
-                    const originalLogin = ConnectApi.onloginresult;
-                    ConnectApi.onloginresult = function(api_conn, result) {
-                      if (originalLogin) originalLogin.apply(this, arguments);
-                      if (result === 0) {
-                        console.log(`[Worker] SDK login succeeded for ${api_conn.deviceid || api_conn.ip}, manually opening stream...`);
-                        if (typeof Player !== 'undefined' && Player.OpenStream) {
-                          // Main stream (streamid=1)
-                          Player.OpenStream(api_conn.deviceid, "", 0, 1, 0);
+            // Restore original WebSocket close immediately
+            window.WebSocket.prototype.close = oldWsClose;
+
+            const proceedToConnect = () => {
+              // Establish WS pipe for frames
+              const wsUrl = `ws://localhost:${wsPort}/?deviceId=${devId}`;
+              const ws = new WebSocket(wsUrl);
+              ws.binaryType = 'arraybuffer';
+              window.__wsConnections[devId] = ws;
+
+              ws.onopen = () => {
+                setTimeout(() => {
+                  if (typeof Player !== 'undefined' && Player.ConnectDevice) {
+                    const devSelect = document.getElementById("dev_id");
+                    let formattedDevId = "";
+                    if (devSelect) {
+                      for (let i = 0; i < devSelect.options.length; i++) {
+                        if (devSelect.options[i].text === devId) {
+                          devSelect.value = devSelect.options[i].value;
+                          formattedDevId = devSelect.options[i].value;
+                          break;
                         }
                       }
-                    };
+                    }
+                    if (!formattedDevId) {
+                      console.log("[Browser] ERROR: devId not found in dropdown list!");
+                      resolve();
+                      return;
+                    }
+
+                    console.log(`[Worker] ConnectDevice called for ${devId} at ${Date.now()}`);
+
+                    // Hook into onloginresult to explicitly OpenStream.
+                    // Use a per-device key so this re-applies correctly after a page reload.
+                    const hookKey = `__loginHooked_${devId}`;
+                    if (typeof ConnectApi !== 'undefined' && !window[hookKey]) {
+                      window[hookKey] = true;
+                      const originalLogin = ConnectApi.onloginresult;
+                      ConnectApi.onloginresult = function (api_conn, result) {
+                        if (originalLogin) originalLogin.apply(this, arguments);
+                        if (result === 0) {
+                          console.log(`[Worker] SDK login succeeded for ${api_conn.deviceid || api_conn.ip}, manually opening stream...`);
+                          if (typeof Player !== 'undefined' && Player.OpenStream) {
+                            // Main stream (streamid=1)
+                            Player.OpenStream(api_conn.deviceid, "", 0, 1, 0);
+                          }
+                        }
+                      };
+                    }
+
+                    // Use connectType=0 (Connect only, we will open stream manually on login)
+                    Player.ConnectDevice(formattedDevId, "", "admin", devSecret, 0, 80, 0, 0, 1, "wss", window.onResolv);
                   }
-
-                  // Use connectType=0 (Connect only, we will open stream manually on login)
-                  Player.ConnectDevice(formattedDevId, "", "admin", devSecret, 0, 80, 0, 0, 1, "wss", window.onResolv);
-                }
-                resolve();
-              }, 100);
+                  resolve();
+                }, 100);
+              };
+              ws.onerror = () => resolve();
             };
-            ws.onerror = () => resolve();
-          };
 
-          if (sdkWs && sdkWs.readyState !== WebSocket.CLOSED) {
-            let checkInterval = setInterval(() => {
-              if (closeFired || sdkWs.readyState === WebSocket.CLOSED) {
+            if (sdkWs && sdkWs.readyState !== WebSocket.CLOSED) {
+              let checkInterval = setInterval(() => {
+                if (closeFired || sdkWs.readyState === WebSocket.CLOSED) {
+                  clearInterval(checkInterval);
+                  clearTimeout(timeout);
+                  setTimeout(proceedToConnect, 100);
+                }
+              }, 50);
+
+              let timeout = setTimeout(() => {
                 clearInterval(checkInterval);
-                clearTimeout(timeout);
                 setTimeout(proceedToConnect, 100);
-              }
-            }, 50);
-            
-            let timeout = setTimeout(() => {
-              clearInterval(checkInterval);
+              }, 3000);
+            } else {
               setTimeout(proceedToConnect, 100);
-            }, 3000);
-          } else {
-            setTimeout(proceedToConnect, 100);
-          }
-        });
-      }, this.deviceId, this.deviceSecret, this.wsPort);
+            }
+          });
+        }, this.deviceId, this.deviceSecret, this.wsPort);
       }); // End of serialized injection block
 
     } catch (err) {
@@ -842,7 +879,7 @@ async function boot() {
   // Reset all statuses to offline at boot to clear out stale 'connected' states from previous runs
   try {
     db.db.prepare(`UPDATE devices SET status = 'offline' WHERE worker_id = ?`).run(workerId);
-  } catch(e) {}
+  } catch (e) { }
 
   console.log(`[Worker:${workerId}] Found ${allBridgeDevices.length} devices assigned in registry.`);
   if (allBridgeDevices.length === 0) {
@@ -861,7 +898,7 @@ async function boot() {
   console.log(`[Worker:${workerId}] Launching shared Puppeteer browser with memory optimizations...`);
   const puppeteerModule = await import('puppeteer');
   const puppeteer = puppeteerModule.default || puppeteerModule;
-  
+
   const cacheDir = `/tmp/puppeteer_cache_worker_${workerId}`;
   if (fs.existsSync(cacheDir)) {
     try {
@@ -942,7 +979,7 @@ async function boot() {
     try {
       for (const [email, accountPage] of accountPages) {
         if (!accountPage.isReady || !accountPage.page) continue;
-        
+
         // Re-extract device list from the live browser session
         const deviceList = await accountPage.page.evaluate(async () => {
           try {
@@ -950,7 +987,7 @@ async function boot() {
             if (res && res.data && res.data.data && res.data.data.list) {
               return res.data.data.list.map(d => d.deviceParams);
             }
-          } catch(e) {}
+          } catch (e) { }
           return [];
         });
 
@@ -992,7 +1029,7 @@ async function boot() {
         SELECT * FROM devices 
         WHERE ingest_tier = 'bridge' AND worker_id = ?
       `).all(workerId);
-      
+
       const globalDevices = db.db.prepare(`
         SELECT device_id FROM devices 
         WHERE ingest_tier = 'bridge' 

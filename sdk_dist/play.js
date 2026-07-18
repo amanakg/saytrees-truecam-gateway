@@ -502,9 +502,13 @@ Player.init = function (playerArr) {
  * :IDIP，ID，IPport
  */
 Player.ConnectDevice = function (devid, ip, user, pwd, winindex, port, connectType, channel, streamid, wss, cb) {
-  //ID
   if (devid) {
-    let session = GetSessionById(devid);
+    let shortDevId = devid;
+    let tmp = devid.split(":");
+    if (tmp.length == 3) {
+      shortDevId = tmp[1];
+    }
+    let session = GetSessionById(shortDevId);
     let bConnect = false;
     if (session == null) {
       session = ConnectApi.create(winindex, user, pwd, connectType, channel, streamid);
@@ -513,8 +517,14 @@ Player.ConnectDevice = function (devid, ip, user, pwd, winindex, port, connectTy
       session.startRecord = false;
       session.recordObject = {};
       session.deviceid = devid; // Critical fix: Tuya SDK forgot to set this, breaking GetSessionById
+      bConnect = true;
+    } else if (session.islocal) {
+      session.islocal = false;
+      bConnect = true;
+    } else {
+      // Re-use the existing session object to prevent memory leaks in C++ WASM
+      bConnect = true;
     }
-    bConnect = true;
     var ngwPort = 80;
     if (bConnect) {
       if (wss == "wss") {
@@ -610,27 +620,23 @@ Player.DisConnectDevice = function (deviceid, ip) {
     let session = GetSessionById(deviceid);
     if (session) {
       ConnectApi.close_socket(session);
-      /* Do not remove from sessionList to prevent memory leaks in the underlying SDK when reconnecting
       for (let i = 0; i < sessionList.length; i++) {
         if (sessionList[i].deviceid === session.deviceid) {
           sessionList.splice(i, 1);
           break;
         }
       }
-      */
     }
   } else if (ip) {
     let session = GetSessionByIp(ip);
     if (session) {
       ConnectApi.close_socket(session);
-      /* Do not remove from sessionList to prevent memory leaks in the underlying SDK when reconnecting
       for (let i = 0; i < sessionList.length; i++) {
         if (sessionList[i].ip === session.ip) {
           sessionList.splice(i, 1);
           break;
         }
       }
-      */
     }
   }
 };

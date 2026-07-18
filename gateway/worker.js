@@ -612,25 +612,17 @@ class CameraBridge {
       const page = await this.accountManager.getReadyPage();
       if (page) {
         await page.evaluate((devId) => {
-          let formattedDevId = "";
-          const devSelect = document.getElementById("dev_id");
-          if (devSelect) {
-            for (let i = 0; i < devSelect.options.length; i++) {
-              if (devSelect.options[i].text === devId) {
-                formattedDevId = devSelect.options[i].value;
-                break;
-              }
-            }
-          }
           if (window.Player && window.Player.DisConnectDevice) {
             try { 
               if (typeof window.GetSessionById !== 'undefined' && window.ConnectApi && window.ConnectApi.close_stream) {
-                let session = window.GetSessionById(formattedDevId || devId);
+                // The Tuya SDK stores the session under the short devId, NOT the formatted devId!
+                let session = window.GetSessionById(devId);
                 if (session) {
                   window.ConnectApi.close_stream(session, 0, 1);
                 }
               }
-              window.Player.DisConnectDevice(formattedDevId || devId); 
+              // index.js passes tmp[1] (short devId) to DisConnectDevice
+              window.Player.DisConnectDevice(devId); 
             } catch (e) { }
           }
         }, devId);

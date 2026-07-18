@@ -758,12 +758,6 @@ class CameraBridge {
           return new Promise((resolve) => {
             window.__wsConnections = window.__wsConnections || {};
 
-            // Clean up previous connection for this device
-            if (window.__wsConnections[devId]) {
-              try { window.__wsConnections[devId].close(); } catch (e) { }
-              delete window.__wsConnections[devId];
-            }
-
             let oldWsClose = window.WebSocket.prototype.close;
             let closeFired = false;
             let sdkWs = null;
@@ -776,12 +770,6 @@ class CameraBridge {
               });
               return oldWsClose.apply(this, arguments);
             };
-
-            // Clean up previous connection for this device
-            if (window.__wsConnections[devId]) {
-              try { window.__wsConnections[devId].close(); } catch (e) { }
-              delete window.__wsConnections[devId];
-            }
 
             // Restore original WebSocket close immediately
             window.WebSocket.prototype.close = oldWsClose;
@@ -845,7 +833,8 @@ class CameraBridge {
                       Player.ConnectDevice(formattedDevId, "", "admin", devSecret, 0, 80, 0, 0, 1, "wss", window.onResolv);
                     } catch (e) {
                       console.log(`[Browser] ERROR in ConnectDevice: ${e.message}`);
-                    }          }
+                    }
+                  }
                   resolve();
                 }, 100);
               };
@@ -870,6 +859,12 @@ class CameraBridge {
             }
           });
         }, this.deviceId, this.deviceSecret, this.wsPort);
+
+        // CRITICAL FIX: Give the Tuya WASM SDK enough time to fully execute its C++ connectbykey logic 
+        // (including external HTTP requests to Tuya Cloud) before releasing the mutex.
+        // Tuya's SDK crashes or drops connections if two ConnectDevice calls happen concurrently!
+        this.log('Staggering next camera connection to protect WASM state...');
+        await new Promise(r => setTimeout(r, 4000));
       }); // End of serialized injection block
 
     } catch (err) {

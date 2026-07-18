@@ -611,7 +611,7 @@ class CameraBridge {
     try {
       const page = await this.accountManager.getReadyPage();
       if (page) {
-        await page.evaluate((devId) => {
+        await page.evaluate(async (devId) => {
           console.log(`[Worker Debug] disconnectCameraInPage running for ${devId}`);
           if (typeof Player !== 'undefined' && typeof Player.DisConnectDevice !== 'undefined') {
             try { 
@@ -620,6 +620,8 @@ class CameraBridge {
                 if (session) {
                   console.log(`[Worker Debug] Found session in disconnectCameraInPage. Closing stream...`);
                   ConnectApi.close_stream(session, 0, 1);
+                  console.log(`[Worker Debug] Waiting 1500ms for WASM to cleanly close stream before killing socket...`);
+                  await new Promise(r => setTimeout(r, 1500));
                 } else {
                   console.log(`[Worker Debug] GetSessionById returned null for ${devId} in disconnectCameraInPage!`);
                 }

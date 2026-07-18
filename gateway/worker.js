@@ -613,27 +613,27 @@ class CameraBridge {
       if (page) {
         await page.evaluate((devId) => {
           console.log(`[Worker Debug] disconnectCameraInPage running for ${devId}`);
-          if (window.Player && window.Player.DisConnectDevice) {
+          if (typeof Player !== 'undefined' && typeof Player.DisConnectDevice !== 'undefined') {
             try { 
-              if (typeof window.GetSessionById !== 'undefined' && window.ConnectApi && window.ConnectApi.close_stream) {
-                let session = window.GetSessionById(devId);
+              if (typeof GetSessionById !== 'undefined' && typeof ConnectApi !== 'undefined' && typeof ConnectApi.close_stream !== 'undefined') {
+                let session = GetSessionById(devId);
                 if (session) {
                   console.log(`[Worker Debug] Found session in disconnectCameraInPage. Closing stream...`);
-                  window.ConnectApi.close_stream(session, 0, 1);
+                  ConnectApi.close_stream(session, 0, 1);
                 } else {
                   console.log(`[Worker Debug] GetSessionById returned null for ${devId} in disconnectCameraInPage!`);
                 }
               }
               console.log(`[Worker Debug] Calling Player.DisConnectDevice(${devId})`);
-              window.Player.DisConnectDevice(devId);
+              Player.DisConnectDevice(devId);
               console.log(`[Worker Debug] DisConnectDevice completed for ${devId}`);
               
               // Forcefully splice it just in case DisConnectDevice failed!
-              if (typeof window.sessionList !== 'undefined') {
-                for (let i = 0; i < window.sessionList.length; i++) {
-                  if (window.sessionList[i].deviceid === devId) {
+              if (typeof sessionList !== 'undefined') {
+                for (let i = 0; i < sessionList.length; i++) {
+                  if (sessionList[i].deviceid === devId) {
                     console.log(`[Worker Debug] FORCE splicing session ${devId} from sessionList!`);
-                    window.sessionList.splice(i, 1);
+                    sessionList.splice(i, 1);
                     break;
                   }
                 }
@@ -641,6 +641,8 @@ class CameraBridge {
             } catch (e) {
               console.log(`[Worker Debug] ERROR in disconnectCameraInPage: ${e.message}`);
             }
+          } else {
+            console.log(`[Worker Debug] Player or DisConnectDevice is UNDEFINED!`);
           }
         }, devId);
       }

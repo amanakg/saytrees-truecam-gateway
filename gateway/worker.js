@@ -687,13 +687,9 @@ class CameraBridge {
       return;
     }
 
-    // Exponential backoff up to 30s for offline cameras
-    let backoffMs = 3000;
-    if (this.reconnectAttempts === 2) backoffMs = 5000;
-    else if (this.reconnectAttempts === 3) backoffMs = 10000;
-    else if (this.reconnectAttempts === 4) backoffMs = 20000;
-    else if (this.reconnectAttempts >= 5) backoffMs = 30000;
-
+    // Tuya SDK WASM engine takes ~30s to clean up a dead socket internally.
+    // Wait 35s to guarantee a clean reconnect on the first attempt without silent failures.
+    let backoffMs = 35000;
     this.log(`Scheduling reconnection in ${Math.round(backoffMs)}ms (attempt ${this.reconnectAttempts})...`);
     db.updateStatus(this.deviceId, 'reconnecting');
 

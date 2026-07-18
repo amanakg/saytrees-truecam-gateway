@@ -612,22 +612,41 @@ class CameraBridge {
       const page = await this.accountManager.getReadyPage();
       if (page) {
         await page.evaluate((devId) => {
+          console.log(`[Worker Debug] disconnectCameraInPage running for ${devId}`);
           if (window.Player && window.Player.DisConnectDevice) {
             try { 
               if (typeof window.GetSessionById !== 'undefined' && window.ConnectApi && window.ConnectApi.close_stream) {
-                // The Tuya SDK stores the session under the short devId, NOT the formatted devId!
                 let session = window.GetSessionById(devId);
                 if (session) {
+                  console.log(`[Worker Debug] Found session in disconnectCameraInPage. Closing stream...`);
                   window.ConnectApi.close_stream(session, 0, 1);
+                } else {
+                  console.log(`[Worker Debug] GetSessionById returned null for ${devId} in disconnectCameraInPage!`);
                 }
               }
-              // index.js passes tmp[1] (short devId) to DisConnectDevice
-              window.Player.DisConnectDevice(devId); 
-            } catch (e) { }
+              console.log(`[Worker Debug] Calling Player.DisConnectDevice(${devId})`);
+              window.Player.DisConnectDevice(devId);
+              console.log(`[Worker Debug] DisConnectDevice completed for ${devId}`);
+              
+              // Forcefully splice it just in case DisConnectDevice failed!
+              if (typeof window.sessionList !== 'undefined') {
+                for (let i = 0; i < window.sessionList.length; i++) {
+                  if (window.sessionList[i].deviceid === devId) {
+                    console.log(`[Worker Debug] FORCE splicing session ${devId} from sessionList!`);
+                    window.sessionList.splice(i, 1);
+                    break;
+                  }
+                }
+              }
+            } catch (e) {
+              console.log(`[Worker Debug] ERROR in disconnectCameraInPage: ${e.message}`);
+            }
           }
         }, devId);
       }
-    } catch (e) { }
+    } catch (e) {
+      console.log(`[Worker Error] disconnectCameraInPage failed: ${e.message}`);
+    }
   }
 
   triggerReconnect() {

@@ -786,8 +786,8 @@ class CameraBridge {
                     console.log(`[Worker] ConnectDevice called for ${devId} at ${Date.now()}`);
 
                     // Hook into onloginresult to explicitly OpenStream.
-                    // Use a per-device key so this re-applies correctly after a page reload.
-                    const hookKey = `__loginHooked_${devId}`;
+                    // Use a global key so this only applies once per page, preventing duplicate hooks!
+                    const hookKey = `__loginHooked_global`;
                     if (typeof ConnectApi !== 'undefined' && !window[hookKey]) {
                       window[hookKey] = true;
                       const originalLogin = ConnectApi.onloginresult;

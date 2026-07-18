@@ -516,7 +516,7 @@ Player.ConnectDevice = function (devid, ip, user, pwd, winindex, port, connectTy
       session.isRecord = false;
       session.startRecord = false;
       session.recordObject = {};
-      session.deviceid = devid; // Critical fix: Tuya SDK forgot to set this, breaking GetSessionById
+      session.deviceid = shortDevId; // Critical fix: Tuya SDK forgot to set this, breaking GetSessionById
       bConnect = true;
     } else if (session.islocal) {
       session.islocal = false;

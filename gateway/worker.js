@@ -606,9 +606,45 @@ class CameraBridge {
     this.killFfmpeg();
   }
 
+  async disconnectCameraInPage(devId) {
+    if (!this.accountManager) return;
+    try {
+      const page = await this.accountManager.getReadyPage();
+      if (page) {
+        await page.evaluate((devId) => {
+          let formattedDevId = "";
+          const devSelect = document.getElementById("dev_id");
+          if (devSelect) {
+            for (let i = 0; i < devSelect.options.length; i++) {
+              if (devSelect.options[i].text === devId) {
+                formattedDevId = devSelect.options[i].value;
+                break;
+              }
+            }
+          }
+          if (window.Player && window.Player.DisConnectDevice) {
+            try { 
+              if (typeof window.GetSessionById !== 'undefined' && window.ConnectApi && window.ConnectApi.close_stream) {
+                let session = window.GetSessionById(formattedDevId || devId);
+                if (session) {
+                  window.ConnectApi.close_stream(session, 0, 1);
+                }
+              }
+              window.Player.DisConnectDevice(formattedDevId || devId); 
+            } catch (e) { }
+          }
+        }, devId);
+      }
+    } catch (e) { }
+  }
+
   triggerReconnect() {
     if (this.isStopping || this.isReconnecting) return;
     if (this.reconnectTimeout) return;
+    
+    // Immediately tear down the SDK session in the browser so the WASM module
+    // has the entire backoff duration (3s+) to cleanly close its internal C++ sockets.
+    this.disconnectCameraInPage(this.deviceId).catch(() => {});
 
     this.reconnectAttempts++;
 
@@ -747,30 +783,6 @@ class CameraBridge {
               delete window.__wsConnections[devId];
             }
 
-            // We need formattedDevId for DisConnectDevice, so calculate it early
-            let formattedDevId = "";
-            const devSelect = document.getElementById("dev_id");
-            if (devSelect) {
-              for (let i = 0; i < devSelect.options.length; i++) {
-                if (devSelect.options[i].text === devId) {
-                  formattedDevId = devSelect.options[i].value;
-                  break;
-                }
-              }
-            }
-
-            if (window.Player && window.Player.DisConnectDevice) {
-              try { 
-                if (typeof window.GetSessionById !== 'undefined' && window.ConnectApi && window.ConnectApi.close_stream) {
-                  let session = window.GetSessionById(formattedDevId || devId);
-                  if (session) {
-                    window.ConnectApi.close_stream(session, 0, 1);
-                  }
-                }
-                window.Player.DisConnectDevice(formattedDevId || devId); 
-              } catch (e) { }
-            }
-
             // Restore original WebSocket close immediately
             window.WebSocket.prototype.close = oldWsClose;
 
@@ -784,6 +796,17 @@ class CameraBridge {
               ws.onopen = () => {
                 setTimeout(() => {
                   if (typeof Player !== 'undefined' && Player.ConnectDevice) {
+                    let formattedDevId = "";
+                    const devSelect = document.getElementById("dev_id");
+                    if (devSelect) {
+                      for (let i = 0; i < devSelect.options.length; i++) {
+                        if (devSelect.options[i].text === devId) {
+                          formattedDevId = devSelect.options[i].value;
+                          break;
+                        }
+                      }
+                    }
+
                     if (!formattedDevId) {
                       console.log("[Browser] ERROR: devId not found in dropdown list!");
                       resolve();

@@ -626,20 +626,7 @@ class CameraBridge {
                   console.log(`[Worker Debug] GetSessionById returned null for ${devId} in disconnectCameraInPage!`);
                 }
               }
-              console.log(`[Worker Debug] Calling Player.DisConnectDevice(${devId})`);
-              Player.DisConnectDevice(devId);
-              console.log(`[Worker Debug] DisConnectDevice completed for ${devId}`);
-              
-              // Forcefully splice it just in case DisConnectDevice failed!
-              if (typeof sessionList !== 'undefined') {
-                for (let i = 0; i < sessionList.length; i++) {
-                  if (sessionList[i].deviceid === devId) {
-                    console.log(`[Worker Debug] FORCE splicing session ${devId} from sessionList!`);
-                    sessionList.splice(i, 1);
-                    break;
-                  }
-                }
-              }
+              console.log(`[Worker Debug] Bypassing Player.DisConnectDevice(${devId}) to keep session alive for reuse!`);
             } catch (e) {
               console.log(`[Worker Debug] ERROR in disconnectCameraInPage: ${e.message}`);
             }
@@ -687,9 +674,10 @@ class CameraBridge {
       return;
     }
 
-    // Tuya SDK WASM engine takes ~30s to clean up a dead socket internally.
-    // Wait 35s to guarantee a clean reconnect on the first attempt without silent failures.
-    let backoffMs = 35000;
+    // Since we are now REUSING the session instead of tearing down the socket,
+    // we do not need to wait 30 seconds for the WASM engine to clean up.
+    // We can confidently try to reconnect much faster.
+    let backoffMs = 5000;
     this.log(`Scheduling reconnection in ${Math.round(backoffMs)}ms (attempt ${this.reconnectAttempts})...`);
     db.updateStatus(this.deviceId, 'reconnecting');
 

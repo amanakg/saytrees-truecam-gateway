@@ -442,6 +442,7 @@ class CameraBridge {
     this.reconnectAttempts = 0;
     // Track how many frames we received after the last connect (used to reset the -13 counter)
     this.framesReceivedSinceConnect = 0;
+    this.refreshTimer = null;
 
     this.logPrefix = `[${this.nickname}][Port:${this.wsPort}]`;
   }
@@ -492,6 +493,13 @@ class CameraBridge {
         this.consecutiveP2pFailures = 0;
         this.reconnectAttempts = 0;
         this.hasEverConnected = true;
+
+        if (this.refreshTimer) clearTimeout(this.refreshTimer);
+        this.refreshTimer = setTimeout(() => {
+          this.log(`Proactive 9.5 min refresh triggered to avoid 10 min Tuya stream timeout.`);
+          this.triggerReconnect();
+        }, 9 * 60 * 1000 + 50 * 1000); // 9 minutes 50 seconds
+
         if (Buffer.isBuffer(message)) {
           this.log(`First 20 bytes: ${message.slice(0, 20).toString('hex')}`);
           this.log(`Stringified: ${message.toString('utf8').substring(0, 100)}`);
@@ -603,6 +611,10 @@ class CameraBridge {
       clearInterval(this.watchdogInterval);
       this.watchdogInterval = null;
     }
+    if (this.refreshTimer) {
+      clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
+    }
     this.killFfmpeg();
   }
 
@@ -646,6 +658,11 @@ class CameraBridge {
     if (this.isStopping || this.isReconnecting) return;
     if (this.reconnectTimeout) return;
     
+    if (this.refreshTimer) {
+      clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
+    }
+
     // Immediately tear down the SDK session in the browser so the WASM module
     // has the entire backoff duration (3s+) to cleanly close its internal C++ sockets.
     this.disconnectCameraInPage(this.deviceId).catch(() => {});

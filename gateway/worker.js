@@ -440,6 +440,7 @@ class CameraBridge {
     this.consecutiveP2pFailures = 0;
     this.hasEverConnected = false;
     this.reconnectAttempts = 0;
+    this.circuitBreakerStrikes = 0;
     // Track how many frames we received after the last connect (used to reset the -13 counter)
     this.framesReceivedSinceConnect = 0;
     this.refreshTimer = null;
@@ -492,9 +493,10 @@ class CameraBridge {
         this.firstMessageLogged = true;
         this.log(`First message received! Type: ${typeof message}, IsBuffer: ${Buffer.isBuffer(message)}, Byte0: ${message[0]}`);
         db.updateStatus(this.deviceId, 'connected', new Date().toISOString()); // Officially connected!
-        // Reset the -13 counter — we're actually getting frames now
+        // Reset the counters — we're actually getting frames now
         this.consecutiveP2pFailures = 0;
         this.reconnectAttempts = 0;
+        this.circuitBreakerStrikes = 0;
         this.hasEverConnected = true;
 
         if (this.refreshTimer) clearTimeout(this.refreshTimer);
@@ -712,15 +714,14 @@ class CameraBridge {
       try {
         this.isReconnecting = true;
 
-        if (this.reconnectAttempts >= 3) {
-          this.log('Camera failed to reconnect 3 times. Proactively reloading shared page to clear SDK memory leak...');
-          await this.accountManager.reloadPage();
-          this.accountManager.reconnectCount = 0;
-          for (const b of activeBridges) {
-            if (b.accountEmail === this.accountEmail) {
-              b.reconnectAttempts = 0;
-              b.consecutiveP2pFailures = 0;
-            }
+        if (this.reconnectAttempts > 0 && this.reconnectAttempts % 3 === 0) {
+          if (this.circuitBreakerStrikes < 2) {
+            this.circuitBreakerStrikes++;
+            this.log(`Camera failed to reconnect ${this.reconnectAttempts} times. Proactively reloading shared page to clear SDK memory leak... (Strike ${this.circuitBreakerStrikes})`);
+            await this.accountManager.reloadPage();
+            this.accountManager.reconnectCount = 0;
+          } else {
+            this.log(`Camera failed ${this.reconnectAttempts} times. Circuit breaker strikes maxed out. Bypassing page reload to protect other cameras.`);
           }
         } else if (this.accountManager.reconnectCount > 150) {
           this.log('Reconnection count exceeded limit. Proactively reloading shared page to clear SDK memory leak...');

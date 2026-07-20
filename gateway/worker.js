@@ -499,9 +499,9 @@ class CameraBridge {
 
         if (this.refreshTimer) clearTimeout(this.refreshTimer);
         this.refreshTimer = setTimeout(() => {
-          this.log(`Proactive 9.5 min refresh triggered to avoid 10 min Tuya stream timeout.`);
+          this.log(`Proactive 8.5 min refresh triggered to avoid 10 min Tuya stream timeout.`);
           this.triggerReconnect();
-        }, 9 * 60 * 1000 + 50 * 1000); // 9 minutes 50 seconds
+        }, 8 * 60 * 1000 + 30 * 1000); // 8 minutes 30 seconds
 
         if (Buffer.isBuffer(message)) {
           this.log(`First 20 bytes: ${message.slice(0, 20).toString('hex')}`);
@@ -712,7 +712,17 @@ class CameraBridge {
       try {
         this.isReconnecting = true;
 
-        if (this.accountManager.reconnectCount > 150) {
+        if (this.reconnectAttempts >= 3) {
+          this.log('Camera failed to reconnect 3 times. Proactively reloading shared page to clear SDK memory leak...');
+          await this.accountManager.reloadPage();
+          this.accountManager.reconnectCount = 0;
+          for (const b of activeBridges) {
+            if (b.accountEmail === this.accountEmail) {
+              b.reconnectAttempts = 0;
+              b.consecutiveP2pFailures = 0;
+            }
+          }
+        } else if (this.accountManager.reconnectCount > 150) {
           this.log('Reconnection count exceeded limit. Proactively reloading shared page to clear SDK memory leak...');
           await this.accountManager.reloadPage();
           this.accountManager.reconnectCount = 0;

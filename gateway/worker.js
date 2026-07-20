@@ -459,6 +459,9 @@ class CameraBridge {
   }
 
   handleWebSocketConnection(socket) {
+    if (this.activeSocket) {
+      try { this.activeSocket.close(); } catch (e) {}
+    }
     this.activeSocket = socket;
     this.log('Browser SDK routed WS connection established! Waiting for frames...');
     this.lastFrameTime = Date.now();
@@ -623,31 +626,39 @@ class CameraBridge {
     try {
       const page = await this.accountManager.getReadyPage();
       if (page) {
-        await page.evaluate(async (devId) => {
-          console.log(`[Worker Debug] disconnectCameraInPage running for ${devId}`);
-          if (typeof Player !== 'undefined' && typeof Player.DisConnectDevice !== 'undefined') {
-            try { 
-              if (typeof GetSessionById !== 'undefined' && typeof ConnectApi !== 'undefined' && typeof ConnectApi.close_stream !== 'undefined') {
-                let session = GetSessionById(devId);
-                if (session) {
-                  console.log(`[Worker Debug] Found session in disconnectCameraInPage. Closing stream...`);
-                  ConnectApi.close_stream(session, 0, 1);
-                  console.log(`[Worker Debug] Waiting 1500ms for WASM to cleanly close stream before killing socket...`);
-                  await new Promise(r => setTimeout(r, 1500));
-                } else {
-                  console.log(`[Worker Debug] GetSessionById returned null for ${devId} in disconnectCameraInPage!`);
-                }
-              }
-              console.log(`[Worker Debug] Calling Player.DisConnectDevice(${devId})`);
-              Player.DisConnectDevice(devId);
-              console.log(`[Worker Debug] DisConnectDevice completed for ${devId}`);
-            } catch (e) {
-              console.log(`[Worker Debug] ERROR in disconnectCameraInPage: ${e.message}`);
+        await this.accountManager.runSerializedInjection(async () => {
+          await page.evaluate(async (devId) => {
+            console.log(`[Worker Debug] disconnectCameraInPage running for ${devId}`);
+            if (window.__wsConnections && window.__wsConnections[devId]) {
+              try { 
+                window.__wsConnections[devId].close(); 
+                delete window.__wsConnections[devId];
+              } catch (e) { }
             }
-          } else {
-            console.log(`[Worker Debug] Player or DisConnectDevice is UNDEFINED!`);
-          }
-        }, devId);
+            if (typeof Player !== 'undefined' && typeof Player.DisConnectDevice !== 'undefined') {
+              try { 
+                if (typeof GetSessionById !== 'undefined' && typeof ConnectApi !== 'undefined' && typeof ConnectApi.close_stream !== 'undefined') {
+                  let session = GetSessionById(devId);
+                  if (session) {
+                    console.log(`[Worker Debug] Found session in disconnectCameraInPage. Closing stream...`);
+                    ConnectApi.close_stream(session, 0, 1);
+                    console.log(`[Worker Debug] Waiting 1500ms for WASM to cleanly close stream before killing socket...`);
+                    await new Promise(r => setTimeout(r, 1500));
+                  } else {
+                    console.log(`[Worker Debug] GetSessionById returned null for ${devId} in disconnectCameraInPage!`);
+                  }
+                }
+                console.log(`[Worker Debug] Calling Player.DisConnectDevice(${devId})`);
+                Player.DisConnectDevice(devId);
+                console.log(`[Worker Debug] DisConnectDevice completed for ${devId}`);
+              } catch (e) {
+                console.log(`[Worker Debug] ERROR in disconnectCameraInPage: ${e.message}`);
+              }
+            } else {
+              console.log(`[Worker Debug] Player or DisConnectDevice is UNDEFINED!`);
+            }
+          }, devId);
+        });
       }
     } catch (e) {
       console.log(`[Worker Error] disconnectCameraInPage failed: ${e.message}`);
@@ -658,10 +669,7 @@ class CameraBridge {
     if (this.isStopping || this.isReconnecting) return;
     if (this.reconnectTimeout) return;
     
-    if (this.refreshTimer) {
-      clearTimeout(this.refreshTimer);
-      this.refreshTimer = null;
-    }
+    this.cleanupSession();
 
     // Immediately tear down the SDK session in the browser so the WASM module
     // has the entire backoff duration (3s+) to cleanly close its internal C++ sockets.

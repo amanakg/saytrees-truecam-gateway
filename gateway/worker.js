@@ -704,8 +704,8 @@ class CameraBridge {
     }
 
     // Tuya SDK WASM engine takes ~30s to clean up a dead socket internally.
-    // Wait 35s to guarantee a clean reconnect on the first attempt without silent failures.
-    let backoffMs = 35000;
+    // Wait 25s to balance fast recovery against Tuya WASM cleanup requirements.
+    let backoffMs = 25000;
     this.log(`Scheduling reconnection in ${Math.round(backoffMs)}ms (attempt ${this.reconnectAttempts})...`);
     db.updateStatus(this.deviceId, 'reconnecting');
 
@@ -714,7 +714,7 @@ class CameraBridge {
       try {
         this.isReconnecting = true;
 
-        if (this.reconnectAttempts > 0 && this.reconnectAttempts % 3 === 0) {
+        if (this.reconnectAttempts > 0 && this.reconnectAttempts % 4 === 0) {
           if (this.circuitBreakerStrikes < 2) {
             this.circuitBreakerStrikes++;
             this.log(`Camera failed to reconnect ${this.reconnectAttempts} times. Proactively reloading shared page to clear SDK memory leak... (Strike ${this.circuitBreakerStrikes})`);

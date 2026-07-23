@@ -845,12 +845,9 @@ class CameraBridge {
                     }
                     let winIndex = window.__cameraWinIndexMap[devId];
 
-                    // Make sure a player object exists for this winIndex so SDK doesn't crash on fillframe
-                    if (typeof playerList !== 'undefined' && typeof kp2pPlayer !== 'undefined') {
-                      if (!playerList[winIndex]) {
-                        playerList[winIndex] = new kp2pPlayer(document.createElement('canvas'), false, winIndex, true, false);
-                      }
-                    }
+                    // We do not pad playerList with new kp2pPlayer() because creating multiple players
+                    // spawns multiple Web Workers, which causes net::ERR_FAILED in Puppeteer and crashes WASM!
+                    // Since we override ConnectApi.onrecvframeex, the Tuya SDK never accesses playerList anyway.
 
                     // Hook into onloginresult to explicitly OpenStream.
                     // Use a global key so this only applies once per page, preventing duplicate hooks!
@@ -880,9 +877,26 @@ class CameraBridge {
                       }
                     } catch (e) { }
 
+                    // Create a custom onResolv to avoid Tuya's default index.js which reads from the dev_id dropdown (causing cross-talk)
+                    window[`__customOnResolv_${devId}`] = function (dId, mqtt_ipv4, mqtt_ipv6, mqtt_port, mqtts_port, ws_port, wss_port, mqttDomain) {
+                      console.log(`[Browser] Device ID: ${dId}, mqtt address: ${mqtt_ipv4}, ${mqtt_ipv6}, ${mqtt_port}, ${mqtts_port}, ${ws_port}, ${wss_port}, ${mqttDomain}`);
+                      let protocol = (mqtts_port > 0) ? "mqtts" : "mqtt";
+                      let port = (mqtts_port > 0) ? mqtts_port : mqtt_port;
+                      let url = dId;
+                      if (!dId.includes(".")) {
+                        protocol = (wss_port > 0) ? "wss" : "ws";
+                        port = (wss_port > 0) ? wss_port : ws_port;
+                        url = mqtt_ipv4.replace(/\./g, "-") + "." + mqttDomain;
+                      }
+                      console.log(`[Browser] Connecting MQTT directly for ${devId} with protocol ${protocol} on port ${port}...`);
+                      if (typeof MqttClient !== 'undefined' && MqttClient.connectClient) {
+                        MqttClient.connectClient(devId, devSecret, url, port);
+                      }
+                    };
+
                     // Actually call the Tuya connection logic
                     try {
-                      Player.ConnectDevice(formattedDevId, "", "admin", devSecret, winIndex, 80, 0, 0, 1, "wss", window.onResolv);
+                      Player.ConnectDevice(formattedDevId, "", "admin", devSecret, winIndex, 80, 0, 0, 1, "wss", window[`__customOnResolv_${devId}`]);
                     } catch (e) {
                       console.log(`[Browser] ERROR in ConnectDevice: ${e.message}`);
                     }

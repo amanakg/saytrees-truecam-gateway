@@ -182,11 +182,11 @@ class AccountPage {
     try {
       const page = await this.browser.newPage();
 
-      this.page.on('dialog', async (dialog) => {
+      page.on('dialog', async (dialog) => {
         await dialog.accept();
       });
 
-      this.page.on('console', async (msg) => {
+      page.on('console', async (msg) => {
         const text = msg.text();
         console.log(`[Browser] ${text}`);
 
@@ -249,7 +249,7 @@ class AccountPage {
           }
         }
       });
-      this.page.on('pageerror', (err) => {
+      page.on('pageerror', (err) => {
         console.error(`[Browser Error] ${err.toString()}`);
       });
 

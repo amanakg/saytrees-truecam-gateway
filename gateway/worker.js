@@ -634,9 +634,9 @@ class CameraBridge {
   async disconnectCameraInPage(devId) {
     if (!this.accountManager) return;
     try {
-      const page = await this.accountManager.getReadyPage();
+      const page = await this.accountManager.getReadyPage(this.deviceId);
       if (page) {
-        await this.accountManager.runSerializedInjection(async () => {
+        await this.accountManager.runSerializedInjection(this.deviceId, async () => {
           await page.evaluate(async (devId) => {
             console.log(`[Worker Debug] disconnectCameraInPage running for ${devId}`);
             if (window.__wsConnections && window.__wsConnections[devId]) {
@@ -726,14 +726,14 @@ class CameraBridge {
           if (this.circuitBreakerStrikes < 2) {
             this.circuitBreakerStrikes++;
             this.log(`Camera failed to reconnect ${this.reconnectAttempts} times. Proactively reloading shared page to clear SDK memory leak... (Strike ${this.circuitBreakerStrikes})`);
-            await this.accountManager.reloadPage();
+            await this.accountManager.reloadPage(this.deviceId);
             this.accountManager.reconnectCount = 0;
           } else {
             this.log(`Camera failed ${this.reconnectAttempts} times. Circuit breaker strikes maxed out. Bypassing page reload to protect other cameras.`);
           }
         } else if (this.accountManager.reconnectCount > 150) {
           this.log('Reconnection count exceeded limit. Proactively reloading shared page to clear SDK memory leak...');
-          await this.accountManager.reloadPage();
+          await this.accountManager.reloadPage(this.deviceId);
           this.accountManager.reconnectCount = 0;
         }
 

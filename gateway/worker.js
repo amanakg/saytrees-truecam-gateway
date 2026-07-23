@@ -497,6 +497,7 @@ class CameraBridge {
     }, 1000);
 
     socket.on('message', (message) => {
+      this.lastFrameTime = Date.now();
       if (!this.firstMessageLogged) {
         this.firstMessageLogged = true;
         this.log(`First message received! Type: ${typeof message}, IsBuffer: ${Buffer.isBuffer(message)}, Byte0: ${message[0]}`);

@@ -845,9 +845,20 @@ class CameraBridge {
                     }
                     let winIndex = window.__cameraWinIndexMap[devId];
 
-                    // We do not pad playerList with new kp2pPlayer() because creating multiple players
-                    // spawns multiple Web Workers, which causes net::ERR_FAILED in Puppeteer and crashes WASM!
-                    // Since we override ConnectApi.onrecvframeex, the Tuya SDK never accesses playerList anyway.
+                    // Provide a lightweight dummy player object for playerList[winIndex]
+                    // This prevents harmless console errors like 'TypeError: Cannot read properties of undefined (reading fillframe_v2)'
+                    // without spawning real WASM Web Workers that cause net::ERR_FAILED.
+                    if (typeof playerList !== 'undefined') {
+                      if (!playerList[winIndex]) {
+                        playerList[winIndex] = {
+                          open() {},
+                          fillframe_v2() {},
+                          fillframe() {},
+                          SetStreamMode() {},
+                          close() {}
+                        };
+                      }
+                    }
 
                     // Hook into onloginresult to explicitly OpenStream.
                     // Use a global key so this only applies once per page, preventing duplicate hooks!

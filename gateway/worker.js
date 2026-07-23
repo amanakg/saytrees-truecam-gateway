@@ -469,7 +469,7 @@ class CameraBridge {
 
   handleWebSocketConnection(socket) {
     if (this.activeSocket) {
-      try { this.activeSocket.close(); } catch (e) {}
+      try { this.activeSocket.close(); } catch (e) { }
     }
     this.activeSocket = socket;
     this.log('Browser SDK routed WS connection established! Waiting for frames...');
@@ -508,9 +508,14 @@ class CameraBridge {
         this.hasEverConnected = true;
 
         if (this.refreshTimer) clearTimeout(this.refreshTimer);
-        this.refreshTimer = setTimeout(() => {
-          this.log(`Proactive 8.5 min refresh triggered to avoid 10 min Tuya stream timeout.`);
-          this.triggerReconnect();
+        this.refreshTimer = setTimeout(async () => {
+          this.log(`Proactive 8.5 min refresh triggered to avoid 10 min Tuya stream timeout. Executing seamless refresh...`);
+          try {
+            await this.connectCameraInPage();
+          } catch (err) {
+            this.error(`Seamless proactive refresh failed: ${err.message}. Fallback to standard reconnect...`);
+            this.triggerReconnect();
+          }
         }, 8 * 60 * 1000 + 30 * 1000); // 8 minutes 30 seconds
 
         if (Buffer.isBuffer(message)) {
@@ -640,13 +645,13 @@ class CameraBridge {
           await page.evaluate(async (devId) => {
             console.log(`[Worker Debug] disconnectCameraInPage running for ${devId}`);
             if (window.__wsConnections && window.__wsConnections[devId]) {
-              try { 
-                window.__wsConnections[devId].close(); 
+              try {
+                window.__wsConnections[devId].close();
                 delete window.__wsConnections[devId];
               } catch (e) { }
             }
             if (typeof Player !== 'undefined' && typeof Player.DisConnectDevice !== 'undefined') {
-              try { 
+              try {
                 if (typeof GetSessionById !== 'undefined' && typeof ConnectApi !== 'undefined' && typeof ConnectApi.close_stream !== 'undefined') {
                   let session = GetSessionById(devId);
                   if (session) {
@@ -678,12 +683,12 @@ class CameraBridge {
   triggerReconnect() {
     if (this.isStopping || this.isReconnecting) return;
     if (this.reconnectTimeout) return;
-    
+
     this.cleanupSession();
 
     // Immediately tear down the SDK session in the browser so the WASM module
     // has the entire backoff duration (3s+) to cleanly close its internal C++ sockets.
-    this.disconnectCameraInPage(this.deviceId).catch(() => {});
+    this.disconnectCameraInPage(this.deviceId).catch(() => { });
 
     this.reconnectAttempts++;
 
@@ -694,7 +699,7 @@ class CameraBridge {
       // Do not reset consecutiveP2pFailures here so the page reload logic in AccountPage can still trigger if needed
       const backoffMs = 120000; // wait 2 minutes
       db.updateStatus(this.deviceId, 'offline');
-      
+
       this.log(`Scheduling delayed reconnection in ${Math.round(backoffMs)}ms...`);
       this.reconnectTimeout = setTimeout(async () => {
         this.reconnectTimeout = null;
@@ -859,11 +864,11 @@ class CameraBridge {
                     if (typeof playerList !== 'undefined') {
                       if (!playerList[winIndex]) {
                         playerList[winIndex] = {
-                          open() {},
-                          fillframe_v2() {},
-                          fillframe() {},
-                          SetStreamMode() {},
-                          close() {}
+                          open() { },
+                          fillframe_v2() { },
+                          fillframe() { },
+                          SetStreamMode() { },
+                          close() { }
                         };
                       }
                     }

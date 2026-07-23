@@ -425,7 +425,7 @@ class AccountPage {
  * It does NOT own a browser page. It uses the AccountManager to send commands.
  */
 class CameraBridge {
-  constructor(device, wsPort, accountManager) {
+  constructor(device, wsPort, accountManager, cameraIndex = 0) {
     this.deviceId = device.device_id;
     this.deviceSecret = device.device_secret;
     this.nickname = device.nickname || device.device_id;
@@ -434,6 +434,7 @@ class CameraBridge {
     this.streamUrl = `rtsp://127.0.0.1:8554/live/${device.stream_name}`;
     this.wsPort = wsPort;
     this.accountManager = accountManager;
+    this.cameraIndex = cameraIndex;
 
     this.wss = null;
     this.ffmpegProcess = null;
@@ -508,10 +509,12 @@ class CameraBridge {
         this.hasEverConnected = true;
 
         if (this.refreshTimer) clearTimeout(this.refreshTimer);
+        const staggerOffsetMs = this.cameraIndex * 20000; // 20s stagger offset per camera
+        const totalDelayMs = (8 * 60 * 1000) + (30 * 1000) + staggerOffsetMs;
         this.refreshTimer = setTimeout(() => {
-          this.log(`Proactive 8.5 min refresh triggered to avoid 10 min Tuya stream timeout.`);
+          this.log(`Proactive 8.5 min refresh (+${staggerOffsetMs / 1000}s stagger) triggered to avoid 10 min Tuya stream timeout.`);
           this.triggerReconnect();
-        }, 8 * 60 * 1000 + 30 * 1000); // 8 minutes 30 seconds
+        }, totalDelayMs);
 
         if (Buffer.isBuffer(message)) {
           this.log(`First 20 bytes: ${message.slice(0, 20).toString('hex')}`);
@@ -1074,6 +1077,7 @@ async function boot() {
   });
 
   // Start a bridge for each camera
+  let cameraIdx = 0;
   for (const device of allBridgeDevices) {
     const email = device.account_email;
     let accountPage = accountPages.get(email);
@@ -1085,7 +1089,7 @@ async function boot() {
     const index = allBridgeGlobal.findIndex(d => d.device_id === device.device_id);
     const wsPort = baseWsPort; // Unified WS port
 
-    const bridge = new CameraBridge(device, wsPort, accountPage);
+    const bridge = new CameraBridge(device, wsPort, accountPage, cameraIdx++);
     activeBridges.push(bridge);
 
     bridge.start().catch(err => {

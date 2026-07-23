@@ -1063,7 +1063,8 @@ async function boot() {
       '--disable-print-preview',
       '--disable-reading-from-canvas',
       '--disable-client-side-phishing-detection',
-      '--memory-pressure-off'
+      '--memory-pressure-off',
+      '--js-flags=--max-old-space-size=128'
     ]
   });
 

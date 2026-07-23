@@ -244,7 +244,7 @@ class AccountPage {
           }
         }
       });
-      page.on('pageerror', (err) => {
+      this.page.on('pageerror', (err) => {
         console.error(`[Browser Error] ${err.toString()}`);
       });
 

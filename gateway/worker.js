@@ -139,47 +139,43 @@ class AccountPage {
     this.accountEmail = accountEmail;
     this.accountPassword = accountPassword;
     this.browser = browser;
-    this.pages = new Map(); // deviceId -> Page
-    this.initPromises = new Map(); // deviceId -> Promise<Page>
-    this.injectLocks = new Map(); // deviceId -> Promise
+    this.page = null;
+    this.isReady = false;
+    this.initializationPromise = null;
+    this.reconnectCount = 0;
+    this.injectLock = Promise.resolve();
   }
 
-  async runSerializedInjection(deviceId, injectionFn) {
-    if (typeof deviceId === 'function') {
-      injectionFn = deviceId;
-    }
-    this.globalInjectLock = this.globalInjectLock || Promise.resolve();
+  async runSerializedInjection(injectionFn) {
     return new Promise((resolve, reject) => {
-      this.globalInjectLock = this.globalInjectLock.then(async () => {
+      this.injectLock = this.injectLock.then(async () => {
         try {
           await injectionFn();
           resolve();
         } catch (e) {
           reject(e);
         }
-        // Enforce 5s stagger between camera P2P connection attempts to prevent Tuya Cloud rate-limiting
-        await new Promise(r => setTimeout(r, 5000));
+        // Enforce 4s delay between injections to protect WASM state
+        await new Promise(r => setTimeout(r, 4000));
       });
     });
   }
 
-  async getReadyPage(deviceId) {
-    if (!deviceId) deviceId = '__default_sync__';
-    let page = this.pages.get(deviceId);
-    if (page && !page.isClosed()) {
-      return page;
+  async getReadyPage() {
+    if (this.isReady && this.page && !this.page.isClosed()) {
+      return this.page;
     }
-    if (!this.initPromises.has(deviceId)) {
-      this.initPromises.set(deviceId, this.initPageForDevice(deviceId));
+    if (!this.initializationPromise) {
+      this.initializationPromise = this.initPage();
     }
-    page = await this.initPromises.get(deviceId);
-    return page;
+    await this.initializationPromise;
+    return this.page;
   }
 
-  async initPageForDevice(deviceId) {
-    console.log(`[AccountPage:${this.accountEmail}] Initializing dedicated page tab for device ${deviceId}...`);
+  async initPage() {
+    console.log(`[AccountPage:${this.accountEmail}] Initializing shared page...`);
     try {
-      const page = await this.browser.newPage();
+      this.page = await this.browser.newPage();
 
       page.on('dialog', async (dialog) => {
         await dialog.accept();
@@ -253,8 +249,8 @@ class AccountPage {
       });
 
       // Block unnecessary resources to save RAM
-      await page.setRequestInterception(true);
-      page.on('request', (req) => {
+      await this.page.setRequestInterception(true);
+      this.page.on('request', (req) => {
         const type = req.resourceType();
         if (['image', 'font', 'stylesheet'].includes(type)) {
           req.abort();
@@ -262,10 +258,10 @@ class AccountPage {
           req.continue();
         }
       });
-      await page.goto('http://localhost:8000/', { waitUntil: 'networkidle2' });
+      await this.page.goto('http://localhost:8000/', { waitUntil: 'networkidle2' });
 
-      console.log(`[AccountPage:${this.accountEmail}][${deviceId}] Running login sequence...`);
-      await page.evaluate(async (acc, pwd) => {
+      console.log(`[AccountPage:${this.accountEmail}] Running login sequence...`);
+      await this.page.evaluate(async (acc, pwd) => {
         document.getElementById('login-account').value = acc;
         document.getElementById('login-password').value = pwd;
         document.getElementById('loginBtn').click();
@@ -352,9 +348,9 @@ class AccountPage {
       }, this.accountEmail, this.accountPassword);
 
       // Auto-sync cameras from Tuya SDK back to the local database
-      const deviceList = await page.evaluate(() => window.__deviceList || []);
+      const deviceList = await this.page.evaluate(() => window.__deviceList || []);
       if (deviceList.length > 0) {
-        console.log(`[AccountPage:${this.accountEmail}][${deviceId}] Found ${deviceList.length} cameras. Auto-syncing to registry...`);
+        console.log(`[AccountPage:${this.accountEmail}] Found ${deviceList.length} cameras. Auto-syncing to registry...`);
         for (const dev of deviceList) {
           if (!dev.deviceUuid || !dev.deviceSecret) continue;
           const existing = db.getDevice(dev.deviceUuid);
@@ -384,39 +380,35 @@ class AccountPage {
       console.log(`[AccountPage:${this.accountEmail}] Waiting 8s for Tuya WASM SDK to finish internal initialization...`);
       await new Promise(r => setTimeout(r, 8000));
 
-      console.log(`[AccountPage:${this.accountEmail}][${deviceId}] Dedicated page tab is ready!`);
-      this.pages.set(deviceId, page);
-      return page;
+      console.log(`[AccountPage:${this.accountEmail}] Shared page is ready!`);
+      this.isReady = true;
     } catch (err) {
-      this.initPromises.delete(deviceId);
+      this.initializationPromise = null;
       throw err;
     }
   }
 
-  async close(deviceId) {
-    if (deviceId && this.pages.has(deviceId)) {
-      const page = this.pages.get(deviceId);
-      if (page && !page.isClosed()) {
-        try { await page.close(); } catch (e) { }
-      }
-      this.pages.delete(deviceId);
-      this.initPromises.delete(deviceId);
-    } else {
-      for (const [id, page] of this.pages) {
-        if (page && !page.isClosed()) {
-          try { await page.close(); } catch (e) { }
-        }
-      }
-      this.pages.clear();
-      this.initPromises.clear();
+  async close() {
+    if (this.page) {
+      try { await this.page.close(); } catch (e) { }
     }
+    this.isReady = false;
   }
 
-  async reloadPage(deviceId) {
-    if (!deviceId) deviceId = '__default_sync__';
-    console.log(`[AccountPage:${this.accountEmail}] Recreating page tab for ${deviceId} to reset SDK state...`);
-    await this.close(deviceId);
-    return this.getReadyPage(deviceId);
+  async reloadPage() {
+    if (this.isReloading) return this.initializationPromise;
+    this.isReloading = true;
+    this.isReady = false;
+    this.initializationPromise = (async () => {
+      try {
+        console.log(`[AccountPage:${this.accountEmail}] Recreating shared page to reset SDK state...`);
+        await this.close();
+        await this.initPage();
+      } finally {
+        this.isReloading = false;
+      }
+    })();
+    return this.initializationPromise;
   }
 }
 
@@ -637,9 +629,9 @@ class CameraBridge {
   async disconnectCameraInPage(devId) {
     if (!this.accountManager) return;
     try {
-      const page = await this.accountManager.getReadyPage(this.deviceId);
+      const page = await this.accountManager.getReadyPage();
       if (page) {
-        await this.accountManager.runSerializedInjection(this.deviceId, async () => {
+        await this.accountManager.runSerializedInjection(async () => {
           await page.evaluate(async (devId) => {
             console.log(`[Worker Debug] disconnectCameraInPage running for ${devId}`);
             if (window.__wsConnections && window.__wsConnections[devId]) {
@@ -729,14 +721,14 @@ class CameraBridge {
           if (this.circuitBreakerStrikes < 2) {
             this.circuitBreakerStrikes++;
             this.log(`Camera failed to reconnect ${this.reconnectAttempts} times. Proactively reloading shared page to clear SDK memory leak... (Strike ${this.circuitBreakerStrikes})`);
-            await this.accountManager.reloadPage(this.deviceId);
+            await this.accountManager.reloadPage();
             this.accountManager.reconnectCount = 0;
           } else {
             this.log(`Camera failed ${this.reconnectAttempts} times. Circuit breaker strikes maxed out. Bypassing page reload to protect other cameras.`);
           }
         } else if (this.accountManager.reconnectCount > 150) {
           this.log('Reconnection count exceeded limit. Proactively reloading shared page to clear SDK memory leak...');
-          await this.accountManager.reloadPage(this.deviceId);
+          await this.accountManager.reloadPage();
           this.accountManager.reconnectCount = 0;
         }
 
@@ -794,11 +786,11 @@ class CameraBridge {
         return;
       }
 
-      const page = await this.accountManager.getReadyPage(this.deviceId);
+      const page = await this.accountManager.getReadyPage();
 
-      this.log('Queueing connection command into dedicated page...');
+      this.log('Queueing connection command to prevent WASM collision...');
 
-      await this.accountManager.runSerializedInjection(this.deviceId, async () => {
+      await this.accountManager.runSerializedInjection(async () => {
         this.log('Injecting connection command into shared page...');
 
         await page.evaluate((devId, devSecret, wsPort) => {
@@ -882,10 +874,10 @@ class CameraBridge {
                         if (result === 0) {
                           console.log(`[Worker] SDK login succeeded for ${api_conn.deviceid || api_conn.ip}, manually opening stream...`);
                           if (typeof Player !== 'undefined' && Player.OpenStream) {
-                            // Main stream (streamid=1)
                             let idx = window.__cameraWinIndexMap ? window.__cameraWinIndexMap[api_conn.deviceid] : 0;
                             if (idx === undefined) idx = 0;
-                            Player.OpenStream(api_conn.deviceid, "", 0, 1, idx);
+                            // Pass channel = idx so C++ WASM allocates separate stream channels per camera!
+                            Player.OpenStream(api_conn.deviceid, "", idx, 1, idx);
                           }
                         }
                       };
@@ -916,9 +908,9 @@ class CameraBridge {
                       }
                     };
 
-                    // Actually call the Tuya connection logic
+                    // Actually call the Tuya connection logic (pass channel = winIndex)
                     try {
-                      Player.ConnectDevice(formattedDevId, "", "admin", devSecret, winIndex, 80, 0, 0, 1, "wss", window[`__customOnResolv_${devId}`]);
+                      Player.ConnectDevice(formattedDevId, "", "admin", devSecret, winIndex, 80, 0, winIndex, 1, "wss", window[`__customOnResolv_${devId}`]);
                     } catch (e) {
                       console.log(`[Browser] ERROR in ConnectDevice: ${e.message}`);
                     }

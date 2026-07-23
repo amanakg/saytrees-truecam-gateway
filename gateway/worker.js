@@ -147,20 +147,19 @@ class AccountPage {
   async runSerializedInjection(deviceId, injectionFn) {
     if (typeof deviceId === 'function') {
       injectionFn = deviceId;
-      deviceId = '__default_sync__';
     }
-    let lock = this.injectLocks.get(deviceId) || Promise.resolve();
+    this.globalInjectLock = this.globalInjectLock || Promise.resolve();
     return new Promise((resolve, reject) => {
-      lock = lock.then(async () => {
+      this.globalInjectLock = this.globalInjectLock.then(async () => {
         try {
           await injectionFn();
           resolve();
         } catch (e) {
           reject(e);
         }
-        await new Promise(r => setTimeout(r, 1000));
+        // Enforce 5s stagger between camera P2P connection attempts to prevent Tuya Cloud rate-limiting
+        await new Promise(r => setTimeout(r, 5000));
       });
-      this.injectLocks.set(deviceId, lock);
     });
   }
 

@@ -139,43 +139,48 @@ class AccountPage {
     this.accountEmail = accountEmail;
     this.accountPassword = accountPassword;
     this.browser = browser;
-    this.page = null;
-    this.isReady = false;
-    this.initializationPromise = null;
-    this.reconnectCount = 0;
-    this.injectLock = Promise.resolve();
+    this.pages = new Map(); // deviceId -> Page
+    this.initPromises = new Map(); // deviceId -> Promise<Page>
+    this.injectLocks = new Map(); // deviceId -> Promise
   }
 
-  async runSerializedInjection(injectionFn) {
+  async runSerializedInjection(deviceId, injectionFn) {
+    if (typeof deviceId === 'function') {
+      injectionFn = deviceId;
+      deviceId = '__default_sync__';
+    }
+    let lock = this.injectLocks.get(deviceId) || Promise.resolve();
     return new Promise((resolve, reject) => {
-      this.injectLock = this.injectLock.then(async () => {
+      lock = lock.then(async () => {
         try {
           await injectionFn();
           resolve();
         } catch (e) {
           reject(e);
         }
-        // Enforce 2.5s delay between injections to protect WASM state
-        await new Promise(r => setTimeout(r, 2500));
+        await new Promise(r => setTimeout(r, 1000));
       });
+      this.injectLocks.set(deviceId, lock);
     });
   }
 
-  async getReadyPage() {
-    if (this.isReady && this.page && !this.page.isClosed()) {
-      return this.page;
+  async getReadyPage(deviceId) {
+    if (!deviceId) deviceId = '__default_sync__';
+    let page = this.pages.get(deviceId);
+    if (page && !page.isClosed()) {
+      return page;
     }
-    if (!this.initializationPromise) {
-      this.initializationPromise = this.initPage();
+    if (!this.initPromises.has(deviceId)) {
+      this.initPromises.set(deviceId, this.initPageForDevice(deviceId));
     }
-    await this.initializationPromise;
-    return this.page;
+    page = await this.initPromises.get(deviceId);
+    return page;
   }
 
-  async initPage() {
-    console.log(`[AccountPage:${this.accountEmail}] Initializing shared page...`);
+  async initPageForDevice(deviceId) {
+    console.log(`[AccountPage:${this.accountEmail}] Initializing dedicated page tab for device ${deviceId}...`);
     try {
-      this.page = await this.browser.newPage();
+      const page = await this.browser.newPage();
 
       this.page.on('dialog', async (dialog) => {
         await dialog.accept();
@@ -249,8 +254,8 @@ class AccountPage {
       });
 
       // Block unnecessary resources to save RAM
-      await this.page.setRequestInterception(true);
-      this.page.on('request', (req) => {
+      await page.setRequestInterception(true);
+      page.on('request', (req) => {
         const type = req.resourceType();
         if (['image', 'font', 'stylesheet'].includes(type)) {
           req.abort();
@@ -258,10 +263,10 @@ class AccountPage {
           req.continue();
         }
       });
-      await this.page.goto('http://localhost:8000/', { waitUntil: 'networkidle2' });
+      await page.goto('http://localhost:8000/', { waitUntil: 'networkidle2' });
 
-      console.log(`[AccountPage:${this.accountEmail}] Running login sequence...`);
-      await this.page.evaluate(async (acc, pwd) => {
+      console.log(`[AccountPage:${this.accountEmail}][${deviceId}] Running login sequence...`);
+      await page.evaluate(async (acc, pwd) => {
         document.getElementById('login-account').value = acc;
         document.getElementById('login-password').value = pwd;
         document.getElementById('loginBtn').click();
@@ -348,9 +353,9 @@ class AccountPage {
       }, this.accountEmail, this.accountPassword);
 
       // Auto-sync cameras from Tuya SDK back to the local database
-      const deviceList = await this.page.evaluate(() => window.__deviceList || []);
+      const deviceList = await page.evaluate(() => window.__deviceList || []);
       if (deviceList.length > 0) {
-        console.log(`[AccountPage:${this.accountEmail}] Found ${deviceList.length} cameras. Auto-syncing to registry...`);
+        console.log(`[AccountPage:${this.accountEmail}][${deviceId}] Found ${deviceList.length} cameras. Auto-syncing to registry...`);
         for (const dev of deviceList) {
           if (!dev.deviceUuid || !dev.deviceSecret) continue;
           const existing = db.getDevice(dev.deviceUuid);
@@ -380,35 +385,39 @@ class AccountPage {
       console.log(`[AccountPage:${this.accountEmail}] Waiting 8s for Tuya WASM SDK to finish internal initialization...`);
       await new Promise(r => setTimeout(r, 8000));
 
-      console.log(`[AccountPage:${this.accountEmail}] Shared page is ready!`);
-      this.isReady = true;
+      console.log(`[AccountPage:${this.accountEmail}][${deviceId}] Dedicated page tab is ready!`);
+      this.pages.set(deviceId, page);
+      return page;
     } catch (err) {
-      this.initializationPromise = null;
+      this.initPromises.delete(deviceId);
       throw err;
     }
   }
 
-  async close() {
-    if (this.page) {
-      try { await this.page.close(); } catch (e) { }
+  async close(deviceId) {
+    if (deviceId && this.pages.has(deviceId)) {
+      const page = this.pages.get(deviceId);
+      if (page && !page.isClosed()) {
+        try { await page.close(); } catch (e) { }
+      }
+      this.pages.delete(deviceId);
+      this.initPromises.delete(deviceId);
+    } else {
+      for (const [id, page] of this.pages) {
+        if (page && !page.isClosed()) {
+          try { await page.close(); } catch (e) { }
+        }
+      }
+      this.pages.clear();
+      this.initPromises.clear();
     }
-    this.isReady = false;
   }
 
-  async reloadPage() {
-    if (this.isReloading) return this.initializationPromise;
-    this.isReloading = true;
-    this.isReady = false;
-    this.initializationPromise = (async () => {
-      try {
-        console.log(`[AccountPage:${this.accountEmail}] Recreating shared page to reset SDK state...`);
-        await this.close();
-        await this.initPage();
-      } finally {
-        this.isReloading = false;
-      }
-    })();
-    return this.initializationPromise;
+  async reloadPage(deviceId) {
+    if (!deviceId) deviceId = '__default_sync__';
+    console.log(`[AccountPage:${this.accountEmail}] Recreating page tab for ${deviceId} to reset SDK state...`);
+    await this.close(deviceId);
+    return this.getReadyPage(deviceId);
   }
 }
 
@@ -783,11 +792,11 @@ class CameraBridge {
         return;
       }
 
-      const page = await this.accountManager.getReadyPage();
+      const page = await this.accountManager.getReadyPage(this.deviceId);
 
-      this.log('Queueing connection command to prevent WASM collision...');
+      this.log('Queueing connection command into dedicated page...');
 
-      await this.accountManager.runSerializedInjection(async () => {
+      await this.accountManager.runSerializedInjection(this.deviceId, async () => {
         this.log('Injecting connection command into shared page...');
 
         await page.evaluate((devId, devSecret, wsPort) => {
@@ -961,7 +970,7 @@ class CameraBridge {
     this.cleanupSession();
 
     try {
-      const page = await this.accountManager.getReadyPage();
+      const page = await this.accountManager.getReadyPage(this.deviceId);
       await page.evaluate((devId) => {
         if (window.__wsConnections && window.__wsConnections[devId]) {
           try { window.__wsConnections[devId].close(); } catch (e) { }
@@ -1090,10 +1099,17 @@ async function boot() {
   setInterval(async () => {
     try {
       for (const [email, accountPage] of accountPages) {
-        if (!accountPage.isReady || !accountPage.page) continue;
+        let activePage = null;
+        for (const [id, page] of accountPage.pages) {
+          if (page && !page.isClosed()) {
+            activePage = page;
+            break;
+          }
+        }
+        if (!activePage) continue;
 
         // Re-extract device list from the live browser session
-        const deviceList = await accountPage.page.evaluate(async () => {
+        const deviceList = await activePage.evaluate(async () => {
           try {
             let res = await window.ConnectApi.getDeviceList();
             if (res && res.data && res.data.data && res.data.data.list) {

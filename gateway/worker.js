@@ -838,6 +838,20 @@ class CameraBridge {
                     }
                     console.log(`[Browser] [Worker] ConnectDevice called for ${devId} at ${Date.now()}. Formatted: ${formattedDevId}`);
 
+                    // Allocate a unique winindex for each camera
+                    window.__cameraWinIndexMap = window.__cameraWinIndexMap || {};
+                    if (window.__cameraWinIndexMap[devId] === undefined) {
+                      window.__cameraWinIndexMap[devId] = Object.keys(window.__cameraWinIndexMap).length;
+                    }
+                    let winIndex = window.__cameraWinIndexMap[devId];
+
+                    // Make sure a player object exists for this winIndex so SDK doesn't crash on fillframe
+                    if (typeof playerList !== 'undefined' && typeof kp2pPlayer !== 'undefined') {
+                      if (!playerList[winIndex]) {
+                        playerList[winIndex] = new kp2pPlayer(document.createElement('canvas'), false, winIndex, true, false);
+                      }
+                    }
+
                     // Hook into onloginresult to explicitly OpenStream.
                     // Use a global key so this only applies once per page, preventing duplicate hooks!
                     const hookKey = `__loginHooked_global`;
@@ -850,7 +864,9 @@ class CameraBridge {
                           console.log(`[Worker] SDK login succeeded for ${api_conn.deviceid || api_conn.ip}, manually opening stream...`);
                           if (typeof Player !== 'undefined' && Player.OpenStream) {
                             // Main stream (streamid=1)
-                            Player.OpenStream(api_conn.deviceid, "", 0, 1, 0);
+                            let idx = window.__cameraWinIndexMap ? window.__cameraWinIndexMap[api_conn.deviceid] : 0;
+                            if (idx === undefined) idx = 0;
+                            Player.OpenStream(api_conn.deviceid, "", 0, 1, idx);
                           }
                         }
                       };
@@ -866,7 +882,7 @@ class CameraBridge {
 
                     // Actually call the Tuya connection logic
                     try {
-                      Player.ConnectDevice(formattedDevId, "", "admin", devSecret, 0, 80, 0, 0, 1, "wss", window.onResolv);
+                      Player.ConnectDevice(formattedDevId, "", "admin", devSecret, winIndex, 80, 0, 0, 1, "wss", window.onResolv);
                     } catch (e) {
                       console.log(`[Browser] ERROR in ConnectDevice: ${e.message}`);
                     }

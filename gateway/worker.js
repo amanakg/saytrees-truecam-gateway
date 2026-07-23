@@ -535,7 +535,9 @@ class CameraBridge {
             const resolution = initData.width && initData.height ? `${initData.width}x${initData.height}` : 'unknown';
             const fps = initData.fps || 0;
             db.updateMetadata(this.deviceId, codec, resolution, fps);
-            this.startFfmpeg(initData);
+            if (!this.ffmpegProcess) {
+              this.startFfmpeg(initData);
+            }
           }
         } catch (e) { }
         return;
@@ -575,8 +577,8 @@ class CameraBridge {
       '-flags', 'low_delay',
       '-strict', 'experimental',
       '-use_wallclock_as_timestamps', '1',
-      '-analyzeduration', '0',
-      '-probesize', '32',
+      '-analyzeduration', '2000000',
+      '-probesize', '1000000',
       '-f', inputFormat,
       '-i', 'pipe:0',
       '-c:v', 'copy',

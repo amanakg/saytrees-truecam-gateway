@@ -12,7 +12,7 @@ The Gateway service logs into the TrueView Cloud platform using these account cr
 | Field | Value |
 | :--- | :--- |
 | **Account Email / Username** | `info@enarxi.com` |
-| **Account Password** | `Enarxi12345@` |
+| **Account Password** | `Camtest123@` |
 | **Client ID** | `enarxi` |
 | **Client API Key (`x-api-key`)** | `dummy_hash_for_testing` |
 
@@ -168,7 +168,7 @@ Available on port `9001` to launch or stop simulated mock camera streams for tes
  ┌──────────▼───────────┐
  │ TrueCam Cloud        │
  └──────────┬───────────┘
-            │ Headless Puppeteer Login (info@enarxi.com / Enarxi12345@)
+            │ Headless Puppeteer Login (info@enarxi.com / Camtest123@)
  ┌──────────▼───────────┐
  │ Gateway (worker.js)  ├──> Intercepts H.264/H.265 frames
  └──────────┬───────────┘

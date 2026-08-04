@@ -72,7 +72,7 @@ await page.goto('http://localhost:8000/', { waitUntil: 'networkidle2' });
 ---
 
 ### Step 3: Login Success
-* **Action**: Puppeteer automatically fills in credentials (`info@enarxi.com` / `Enarxi12345@`) and clicks **Login**.
+* **Action**: Puppeteer automatically fills in credentials (`info@enarxi.com` / `Camtest123@`) and clicks **Login**.
 * **Code Reference**: [`gateway/worker.js`](file:///d:/enarxi/Cam/truecam/gateway/worker.js#L268-L285)
 ```javascript
 await page.evaluate(async (acc, pwd) => {

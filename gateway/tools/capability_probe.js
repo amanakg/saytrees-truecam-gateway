@@ -5,7 +5,7 @@ const path = require('path');
 
 // Read command line arguments or use defaults
 const account = process.argv[2] || "info@enarxi.com";
-const password = process.argv[3] || "Enarxi12345@";
+const password = process.argv[3] || "Camtest123@";
 const targetDeviceId = process.argv[4] || "367ABDWN1000346168"; // Default to Camera 1
 
 const sdkPath = path.join(__dirname, '..', '..', 'sdk_dist');

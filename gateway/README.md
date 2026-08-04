@@ -84,7 +84,7 @@ We have included a utility script [`get_devices.js`](file:///d:/Users/chellakkum
 To find your UUID and Secret programmatically:
 1. Run the script from the `gateway/` directory with your Trueview login credentials:
    ```bash
-   node get_devices.js info@enarxi.com Enarxi12345@
+   node get_devices.js info@enarxi.com Camtest123@
    ```
 2. The script will securely log in to the API, resolve the domain, and print all cameras in your account:
    ```text

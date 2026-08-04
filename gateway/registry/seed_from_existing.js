@@ -21,7 +21,7 @@ try {
     streamName: 'devcamera1_hd',
     ingestTier: 'bridge',
     accountEmail: 'info@enarxi.com',
-    accountPasswordRef: 'Enarxi12345@', // reference to account password
+    accountPasswordRef: 'Camtest123@', // reference to account password
     workerId: 'worker1', // initially assign to worker1
     status: 'offline'
   });
@@ -37,7 +37,7 @@ try {
     streamName: 'devcamera2_hd',
     ingestTier: 'bridge',
     accountEmail: 'info@enarxi.com',
-    accountPasswordRef: 'Enarxi12345@',
+    accountPasswordRef: 'Camtest123@',
     workerId: 'worker1', // initially assign to worker1
     status: 'offline'
   });

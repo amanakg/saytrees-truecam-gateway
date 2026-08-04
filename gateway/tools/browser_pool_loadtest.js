@@ -6,7 +6,7 @@ const { exec } = require('child_process');
 
 const numCameras = parseInt(process.argv[2], 10) || 10;
 const account = process.argv[3] || "info@enarxi.com";
-const password = process.argv[4] || "Enarxi12345@";
+const password = process.argv[4] || "Camtest123@";
 
 const sdkPath = path.join(__dirname, '..', '..', 'sdk_dist');
 console.log(`[LoadTest] Serving SDK static files from: ${sdkPath}`);

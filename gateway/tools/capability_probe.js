@@ -1,4 +1,4 @@
-const puppeteer = require('puppeteer');
+const { chromium } = require('playwright');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -41,8 +41,8 @@ server.listen(8002, async () => {
   
   let browser;
   try {
-    console.log('[Probe] Launching Puppeteer...');
-    browser = await puppeteer.launch({
+    console.log('[Probe] Launching Playwright Chromium...');
+    browser = await chromium.launch({
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
@@ -51,42 +51,54 @@ server.listen(8002, async () => {
     
     // Auto-accept all alerts/dialogs
     page.on('dialog', async (dialog) => {
-      console.log(`[Probe] Dialog intercepted: ${dialog.message()}`);
+      console.log(`[Probe Dialog Alert]: ${dialog.message()}`);
       await dialog.accept();
     });
 
+    page.on('console', msg => {
+      console.log(`[Browser Console]: ${msg.text()}`);
+    });
+
     console.log('[Probe] Navigating to http://localhost:8002/ ...');
-    await page.goto('http://localhost:8002/', { waitUntil: 'networkidle2' });
+    await page.goto('http://localhost:8002/', { waitUntil: 'domcontentloaded' });
 
     console.log('[Probe] Logging in with account:', account);
-    await page.evaluate(async (acc, pwd) => {
+    const loginResult = await page.evaluate(async ({ acc, pwd }) => {
       document.getElementById('login-account').value = acc;
       document.getElementById('login-password').value = pwd;
-      document.getElementById('loginBtn').click();
-    }, account, password);
+      try {
+        const token = await window.ConnectApi.userLogin(acc, pwd);
+        console.log('[Browser] ConnectApi.userLogin succeeded, token:', token);
+        window.access_token = token;
+        return { success: true, token: token };
+      } catch (err) {
+        console.error('[Browser] ConnectApi.userLogin failed:', err);
+        return { success: false, error: err.msg || err.message || JSON.stringify(err) };
+      }
+    }, { acc: account, pwd: password });
 
-    // Wait for access_token to be populated on the window
-    console.log('[Probe] Waiting for login authentication token...');
-    await page.waitForFunction(() => window.access_token !== undefined && window.access_token !== null, { timeout: 15000 });
-    
-    console.log('[Probe] Login success! Fetching device list...');
-    await page.evaluate(async () => {
-      let loaded = false;
-      while (!loaded) {
+    console.log('[Probe] Login attempt result:', JSON.stringify(loginResult, null, 2));
+    const deviceResult = await page.evaluate(async () => {
+      let attempts = 0;
+      while (attempts < 5) {
+        attempts++;
         try {
-          await getDeviceList();
-          const select = document.getElementById('dev_id');
-          if (select && select.options.length > 0) {
-            loaded = true;
+          let res = await window.ConnectApi.getDeviceList();
+          console.log('[Browser] ConnectApi.getDeviceList result:', JSON.stringify(res));
+          if (res && res.data && res.data.data && Array.isArray(res.data.data.list)) {
+            // Populate select box if devices exist
+            await getDeviceList();
+            return { success: true, list: res.data.data.list, raw: res };
           }
         } catch (e) {
-          // ignore and retry
+          console.error('[Browser] Error calling getDeviceList:', e.message);
         }
-        if (!loaded) {
-          await new Promise(r => setTimeout(r, 2000));
-        }
+        await new Promise(r => setTimeout(r, 2000));
       }
+      return { success: false, error: 'Timeout or empty device list from Tuya Cloud' };
     });
+
+    console.log('[Probe] Device list fetch result:', JSON.stringify(deviceResult, null, 2));
 
     // Check if device select list has option
     const devices = await page.evaluate(() => {

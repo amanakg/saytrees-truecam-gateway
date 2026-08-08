@@ -13,7 +13,7 @@ This gateway bypasses these limits by simulating a user viewing the camera in a 
 ```mermaid
 flowchart TD
     subgraph Local Client Machine / VPS
-        NodeHttp["Built-in HTTP Server (Port 8000)"] -->|Serves HTML/WASM| Chrome["Headless Chrome (Puppeteer)"]
+        NodeHttp["Built-in HTTP Server (Port 8000)"] -->|Serves HTML/WASM| Chrome["Headless Chrome (Playwright)"]
         Chrome -->|Executes| SDK["H5 SDK (Wasm Connection Engine)"]
         SDK -->|Intercepts Raw Frames| WS["Local WebSocket Link (Port 8080)"]
         WS -->|Uint8Array Video Packets| NodeWS["Node.js Gateway Server"]
@@ -29,7 +29,7 @@ flowchart TD
 
 ### Core Architecture Components:
 1. **Built-in HTTP Server:** Serves the static H5 SDK files (Wasm and Javascript decoders) on port `8000`. This removes the need to run an external Python server or configure Nginx.
-2. **Headless Chrome (Puppeteer):** Launches a background browser, loads the local page, automatically logs in to the Trueview Cloud portal, fetches the online device list, connects to the target camera via UDP P2P, and triggers the stream.
+2. **Headless Chrome (Playwright):** Launches a high-performance background browser using **Playwright Chromium**, loads the local page, automatically logs in to the Trueview Cloud portal, fetches the online device list, connects to the target camera via UDP P2P, and triggers the stream.
 3. **P2P Frame Interceptor:** Overrides the SDK's internal frame callback (`ConnectApi.onrecvframeex`). When raw Annex B H.264/H.265 video packets are output by the WebAssembly layer, they are intercepted and immediately sent to the Node.js server via WebSockets.
 4. **FFmpeg Pipeline:** Ingests raw video packets from the WebSocket, injects wallclock timestamps (`-fflags +genpts -use_wallclock_as_timestamps 1`), and pushes the stream via RTSP using **zero-CPU copy mode** (`-c:v copy`).
 

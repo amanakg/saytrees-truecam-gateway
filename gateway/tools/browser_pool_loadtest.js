@@ -1,4 +1,4 @@
-const puppeteer = require('puppeteer');
+const { chromium } = require('playwright');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -84,8 +84,8 @@ server.listen(8003, async () => {
   
   let browser;
   try {
-    console.log(`[LoadTest] Launching single Puppeteer browser instance...`);
-    browser = await puppeteer.launch({
+    console.log(`[LoadTest] Launching single Playwright browser instance...`);
+    browser = await chromium.launch({
       headless: true,
       args: [
         '--no-sandbox', '--disable-setuid-sandbox',
@@ -98,8 +98,8 @@ server.listen(8003, async () => {
       ]
     });
 
-    const browserPid = browser.process().pid;
-    console.log(`[LoadTest] Headless browser launched. PID: ${browserPid}`);
+    const browserPid = (typeof browser.process === 'function' && browser.process()) ? browser.process().pid : process.pid;
+    console.log(`[LoadTest] Headless browser launched. Process ID: ${browserPid}`);
 
     console.log(`[LoadTest] Creating single shared page...`);
     const page = await browser.newPage();
@@ -109,9 +109,9 @@ server.listen(8003, async () => {
     page.on('pageerror', err => console.log(`[Browser Error] ${err.message}`));
 
     
-    console.log(`[LoadTest] Adding evaluateOnNewDocument stubs...`);
+    console.log(`[LoadTest] Adding addInitScript stubs...`);
     // Stub Rendering & Audio
-    await page.evaluateOnNewDocument(() => {
+    await page.addInitScript(() => {
       window.requestAnimationFrame = (cb) => setTimeout(cb, 1000);
       window.AudioContext = function() { 
         const dummyNode = new Proxy({
@@ -139,12 +139,12 @@ server.listen(8003, async () => {
     });
 
     console.log(`[LoadTest] Navigating to http://localhost:8003/...`);
-    await page.goto('http://localhost:8003/', { waitUntil: 'networkidle2', timeout: 60000 });
+    await page.goto('http://localhost:8003/', { waitUntil: 'domcontentloaded', timeout: 60000 });
     
     console.log(`[LoadTest] Navigation complete. Running login sequence...`);
     // Login
     try {
-      await page.evaluate(async (acc, pwd) => {
+      await page.evaluate(async ({ acc, pwd }) => {
         document.getElementById('login-account').value = acc;
         document.getElementById('login-password').value = pwd;
         document.getElementById('loginBtn').click();
@@ -164,7 +164,7 @@ server.listen(8003, async () => {
             clearInterval(interval);
           }
         }, 100);
-      }, account, password);
+      }, { acc: account, pwd: password });
     } catch (err) {
       console.error('[LoadTest] Login evaluate failed:', err.message);
       throw err;
@@ -194,9 +194,9 @@ server.listen(8003, async () => {
     console.log(`\n[LoadTest] Measuring memory usage...`);
     let memoryReport = '';
     
-    // Check detailed metrics from Puppeteer
-    const metrics = await page.metrics();
-    console.log(`[Puppeteer Page Metrics] JSHeapUsedSize: ${(metrics.JSHeapUsedSize / 1048576).toFixed(2)} MB`);
+    // Check detailed metrics from Playwright / Chrome Performance API
+    const heapUsedBytes = await page.evaluate(() => (window.performance && window.performance.memory) ? window.performance.memory.usedJSHeapSize : 0);
+    console.log(`[Playwright Page Metrics] JSHeapUsedSize: ${(heapUsedBytes / 1048576).toFixed(2)} MB`);
 
     if (process.platform === 'win32') {
       memoryReport = await getChromeMemoryWindows(browserPid);
@@ -209,7 +209,7 @@ server.listen(8003, async () => {
     console.error('[LoadTest] Error during load test:', err.message);
   } finally {
     if (browser) {
-      console.log('[LoadTest] Closing Puppeteer browser...');
+      console.log('[LoadTest] Closing Playwright browser...');
       await browser.close();
     }
     server.close(() => {

@@ -11,7 +11,7 @@ flowchart TD
     end
 
     subgraph "Your VPS (Gateway Server)"
-        Cloud -->|"Video Chunks"| Browser["Headless Chrome (Puppeteer)"]
+        Cloud -->|"Video Chunks"| Browser["Headless Chrome (Playwright)"]
         
         Browser -->|"WebSocket"| Worker["Node.js worker.js"]
         
@@ -30,14 +30,14 @@ flowchart TD
 
 When the physical camera is turned on, it doesn't stream directly to the VPS. Instead, it securely connects to TrueCam's proprietary cloud servers and streams the live video data there using its internal firmware. We have no direct access to this connection.
 
-## Step 2: The Headless Browser (Puppeteer)
+## Step 2: The Headless Browser (Playwright)
 **File:** `gateway/worker.js`  
-**Function:** `AccountPage.initPage()`
+**Function:** `AccountPage.initPageForDevice()`
 
 To access the proprietary video stream without an official API, the VPS runs a background script called `worker.js`. 
 - `worker.js` creates an `AccountPage` instance for each TrueCam account email.
-- It launches a hidden Google Chrome browser using `puppeteer` and navigates to the local SDK host (`http://localhost:8000/`).
-- Using injected JavaScript (`this.page.evaluate`), it automatically logs into the TrueCam account by filling in the username and password fields.
+- It launches a high-performance Google Chrome instance using **Playwright Chromium** (`chromium.launch({ headless: true })`) and navigates to the local SDK host (`http://localhost:8000/`).
+- Using injected JavaScript (`page.evaluate`), it automatically logs into the TrueCam account by filling in the username and password fields.
 
 ## Step 3: Intercepting the Frames (The "Monkey Patch")
 **File:** `gateway/worker.js`  
@@ -85,9 +85,9 @@ Instead of relying on clunky, high-latency RTSP players, the custom dashboard us
 
 Because the system relies on intercepting closed ecosystems and bypassing third-party limits, it has several highly-tuned self-healing mechanisms:
 
-- **10-Minute P2P Auto-Recovery:** Tuya Cloud intentionally kills WebRTC/P2P streams every 10 minutes to save bandwidth. To counter this, `worker.js` runs a continuous watchdog timer. If frames stop arriving for exactly **10 seconds**, it assumes the 10-minute limit was hit, kills the stuck FFmpeg process, and silently re-injects the connection command (`ConnectDevice`) into the shared page.
+- **8.5-Minute Recurring Proactive Stream Refresh:** Tuya Cloud intentionally kills P2P streams after 10 minutes. To counter this, `worker.js` executes `scheduleProactiveRefresh()` every **8.5 minutes (8m 30s / 510,000ms)**. This pre-emptively renews the session token in the browser context while maintaining an active FFmpeg pipe, guaranteeing continuous 24/7 streaming without stream cuts or blackouts.
 - **Tuya Web SDK Memory Leak Fixes:** The official Tuya SDK (`play.js`) has two major memory leaks:
-  - **JS Leak:** It fails to garbage collect closed sessions (`sessionList`). We modified the SDK to bypass object creation if the session already exists, and we forcefully delete Chromium's cache (`/tmp/puppeteer_cache_worker_*`) on worker boot to ensure the patched SDK is always loaded.
+  - **JS Leak:** It fails to garbage collect closed sessions (`sessionList`). We modified the SDK to bypass object creation if the session already exists, and we forcefully delete Chromium's cache (`/tmp/playwright_cache_worker_*`) on worker boot to ensure the patched SDK is always loaded.
   - **WASM Leak (`Error code:-15`):** Even with the JS array fixed, Tuya's proprietary C++ WASM binary slowly leaks internal connection objects every time a stream recovers. Once it hits its hardcoded array limit (~128 connections, which takes about 21 hours of continuous uptime), it throws `Error code:-15`. Our interceptor instantly detects this and triggers a graceful worker reboot (`process.exit(1)`). This perfectly clears the C++ memory heap, causing only a tiny 6-second stream pause once a day!
 - **Graceful Error Handling (`Error code:-13`):** If a camera goes offline or its tokens rotate, the worker simply logs a warning and allows the 10-second watchdog to infinitely retry the connection in the background. This ensures that a single offline camera will never crash the shared worker, allowing healthy cameras to continue streaming flawlessly.
 - **Seamless Frontend Swapping:** On the dashboard (`app.js`), if MediaMTX detects a stream drop, the UI does not just go black. Instead, it creates a *hidden* secondary video player (`newVideo`). It repeatedly tries to reconnect in the background. Once the stream is successfully recovered and the new video element fires `timeupdate` (proving a frame was rendered), the UI instantly swaps the hidden player to the front and destroys the old one, resulting in a completely seamless recovery experience.

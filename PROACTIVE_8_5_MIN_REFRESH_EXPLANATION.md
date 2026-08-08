@@ -57,22 +57,77 @@ Instead of reactively waiting for the connection to crash at 10 minutes, the gat
 
 ## 3. Exact Code Implementation in `worker.js`
 
-**File Location:** [`gateway/worker.js`](file:///d:/enarxi/Cam/truecam/gateway/worker.js#L511-L520) (Class: `CameraBridge`)
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Tuya as Tuya Cloud P2P
+    participant Page as Browser Tab (Playwright)
+    participant Worker as Gateway Worker.js
+    participant FFmpeg as FFmpeg Process
+    participant MTX as MediaMTX RTSP
 
-```javascript
-// Triggered once the first frame of a session arrives
-if (this.refreshTimer) clearTimeout(this.refreshTimer);
+    Tuya->>Page: Send Audio/Video Frames
+    Page->>Worker: Forward via WebSocket pipe
+    Worker->>FFmpeg: Write to stdin (pipe:0)
+    Worker->>Worker: scheduleProactiveRefresh() Timer (510,000 ms)
+    
+    Note over Worker: Timer Countdown (0:00 -> 8:30 min)...
+    
+    Worker->>Worker: 8:30 min Timer Fires!
+    Worker->>Page: Call connectCameraInPage() -> Player.ConnectDevice()
+    Page->>Tuya: Re-handshake P2P Session Token
+    Tuya-->>Page: Stream Session Renewed (New IDR Keyframe)
+    Page->>Worker: Continue pushing WebSockets (No gap)
+    Worker->>Worker: scheduleProactiveRefresh() Arms Timer for Next Cycle (17:00, 25:30...)
+```
 
-this.refreshTimer = setTimeout(async () => {
-  this.log(`Proactive 8.5 min refresh triggered to avoid 10 min Tuya stream timeout. Executing seamless refresh...`);
-  try {
-    // Silently re-issue P2P connection inside Puppeteer browser tab
-    await this.connectCameraInPage();
-  } catch (err) {
-    this.error(`Seamless proactive refresh failed: ${err.message}. Fallback to standard reconnect...`);
-    this.triggerReconnect();
-  }
-}, 8 * 60 * 1000 + 30 * 1000); // 8 minutes 30 seconds = 510,000 milliseconds
+### Step-by-Step Code Execution
+
+1. **Timer Initialization & Recurrence ([`gateway/worker.js: L560–L572`](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js#L560-L572))**:
+   When initial frames or frame metadata arrive, `worker.js` invokes `scheduleProactiveRefresh()`:
+   ```javascript
+   scheduleProactiveRefresh() {
+     if (this.refreshTimer) clearTimeout(this.refreshTimer);
+     this.refreshTimer = setTimeout(async () => {
+       this.log(`Proactive 8.5 min refresh triggered to avoid 10 min Tuya stream timeout...`);
+       try {
+         await this.connectCameraInPage();
+       } catch (err) {
+         this.triggerReconnect();
+       }
+     }, 8 * 60 * 1000 + 30 * 1000); // 8m30s = 510,000 milliseconds
+   }
+   ```
+
+2. **In-Page Injection ([`gateway/worker.js: L802–L850`](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js#L802-L850))**:
+   At $t = 8:30$, `connectCameraInPage()` calls `Player.ConnectDevice(devId)` inside the browser page via Playwright `page.evaluate()`.
+
+3. **In-Place Session Renewal**:
+   Tuya Web SDK updates the P2P connection tokens in the background without closing the WebSocket frame pipe.
+
+4. **Timer Reset for Next Cycle**:
+   Once new frames arrive after the refresh, the 8.5-minute timer resets automatically for the next cycle ($t = 17:00$, $t = 25:30$, etc.).
+
+---
+
+## 4. Why There is ZERO Lag or Blackout During Refresh
+
+There are **4 technical reasons** why users experience continuous video with zero buffering:
+
+1. **FFmpeg Process Stays Alive**: Unlike standard reconnects, FFmpeg is never killed or re-spawned. Its `stdin` pipe remains open.
+2. **WebSocket Channel Remains Connected**: The socket connection between Puppeteer and `worker.js` is kept active.
+3. **Dual-Session Handshake**: Tuya's Web SDK opens the new P2P connection while the old connection is still pushing frames, creating an overlapping takeover with 0ms gap.
+4. **Instant IDR Keyframe (`frametype=1`)**: Tuya Cloud immediately sends a full I-Frame (~14–27 KB) upon renewal. Decoders render it instantly without needing old reference frames.
+
+```
+❌ STANDARD RECONNECT (Causes 15-30s Lag):
+Kill FFmpeg ──► Teardown Socket ──► Wait 25s WASM Cleanup ──► Re-spawn FFmpeg ──► Buffer Video
+└───────────────────────────────── 15–30s BLACK SCREEN ─────────────────────────────────┘
+
+✅ 8.5m PROACTIVE REFRESH (0s Lag):
+FFmpeg Running ──► Pipe Open ──► Background P2P Handshake ──► Instant Keyframe Received
+└──────────────────────────────── 0s LAG / SMOOTH VIDEO ────────────────────────────────┘
+>>>>>>> Stashed changes
 ```
 
 ---

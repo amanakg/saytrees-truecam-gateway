@@ -253,19 +253,18 @@ class AccountPage {
       });
 
       // Block unnecessary resources to save RAM
-      await page.setRequestInterception(true);
-      page.on('request', (req) => {
-        const type = req.resourceType();
+      await page.route('**/*', (route) => {
+        const type = route.request().resourceType();
         if (['image', 'font', 'stylesheet'].includes(type)) {
-          req.abort();
+          route.abort();
         } else {
-          req.continue();
+          route.continue();
         }
       });
-      await page.goto('http://localhost:8000/', { waitUntil: 'networkidle2' });
+      await page.goto('http://localhost:8000/', { waitUntil: 'domcontentloaded' });
 
       console.log(`[AccountPage:${this.accountEmail}][${deviceId}] Running login sequence...`);
-      await page.evaluate(async (acc, pwd) => {
+      await page.evaluate(async ({ acc, pwd }) => {
         document.getElementById('login-account').value = acc;
         document.getElementById('login-password').value = pwd;
         document.getElementById('loginBtn').click();
@@ -349,7 +348,7 @@ class AccountPage {
             console.log('[Browser] Global Multiplexed Interceptor installed (or re-installed).');
           }
         }, 100);
-      }, this.accountEmail, this.accountPassword);
+      }, { acc: this.accountEmail, pwd: this.accountPassword });
 
       // Auto-sync cameras from Tuya SDK back to the local database
       const deviceList = await page.evaluate(() => window.__deviceList || []);
@@ -508,16 +507,7 @@ class CameraBridge {
         this.circuitBreakerStrikes = 0;
         this.hasEverConnected = true;
 
-        if (this.refreshTimer) clearTimeout(this.refreshTimer);
-        this.refreshTimer = setTimeout(async () => {
-          this.log(`Proactive 8.5 min refresh triggered to avoid 10 min Tuya stream timeout. Executing seamless refresh...`);
-          try {
-            await this.connectCameraInPage();
-          } catch (err) {
-            this.error(`Seamless proactive refresh failed: ${err.message}. Fallback to standard reconnect...`);
-            this.triggerReconnect();
-          }
-        }, 8 * 60 * 1000 + 30 * 1000); // 8 minutes 30 seconds
+        this.scheduleProactiveRefresh();
 
         if (Buffer.isBuffer(message)) {
           this.log(`First 20 bytes: ${message.slice(0, 20).toString('hex')}`);
@@ -535,9 +525,10 @@ class CameraBridge {
             const resolution = initData.width && initData.height ? `${initData.width}x${initData.height}` : 'unknown';
             const fps = initData.fps || 0;
             db.updateMetadata(this.deviceId, codec, resolution, fps);
-            if (!this.ffmpegProcess) {
-              this.startFfmpeg(initData);
-            }
+            // Start/continue FFmpeg pipeline
+            this.startFfmpeg(initData);
+            // Re-schedule the 8.5 minute proactive refresh timer for the next cycle (17m, 25.5m, etc.)
+            this.scheduleProactiveRefresh();
           }
         } catch (e) { }
         return;
@@ -564,7 +555,26 @@ class CameraBridge {
     });
   }
 
+  scheduleProactiveRefresh() {
+    if (this.refreshTimer) clearTimeout(this.refreshTimer);
+    this.refreshTimer = setTimeout(async () => {
+      this.log(`Proactive 8.5 min refresh triggered to avoid 10 min Tuya stream timeout. Executing seamless refresh...`);
+      try {
+        await this.connectCameraInPage();
+      } catch (err) {
+        this.error(`Seamless proactive refresh failed: ${err.message}. Fallback to standard reconnect...`);
+        this.triggerReconnect();
+      }
+    }, 8 * 60 * 1000 + 30 * 1000); // 8 minutes 30 seconds (510,000 ms)
+  }
+
   startFfmpeg(initData) {
+    // If FFmpeg is already active and healthy, keep the stdin pipe open for seamless zero-lag streaming
+    if (this.ffmpegProcess && !this.ffmpegProcess.killed && this.ffmpegProcess.stdin && this.ffmpegProcess.stdin.writable) {
+      this.log(`FFmpeg pipeline already active for RTSP: ${this.streamUrl}. Continuing seamless stream handover.`);
+      return;
+    }
+
     this.killFfmpeg();
     const isH265 = initData.enc && (initData.enc.includes('265') || initData.enc.includes('hevc'));
     const inputFormat = isH265 ? 'hevc' : 'h264';
@@ -806,7 +816,7 @@ class CameraBridge {
       await this.accountManager.runSerializedInjection(this.deviceId, async () => {
         this.log('Injecting connection command into shared page...');
 
-        await page.evaluate((devId, devSecret, wsPort) => {
+        await page.evaluate(({ devId, devSecret, wsPort }) => {
           return new Promise((resolve) => {
             window.__wsConnections = window.__wsConnections || {};
 
@@ -951,7 +961,7 @@ class CameraBridge {
               setTimeout(proceedToConnect, 100);
             }
           });
-        }, this.deviceId, this.deviceSecret, this.wsPort);
+        }, { devId: this.deviceId, devSecret: this.deviceSecret, wsPort: this.wsPort });
 
         // CRITICAL FIX: Give the Tuya WASM SDK enough time to fully execute its C++ connectbykey logic 
         // (including external HTTP requests to Tuya Cloud) before releasing the mutex.
@@ -1023,11 +1033,10 @@ async function boot() {
 
   startHttpServers();
 
-  console.log(`[Worker:${workerId}] Launching shared Puppeteer browser with memory optimizations...`);
-  const puppeteerModule = await import('puppeteer');
-  const puppeteer = puppeteerModule.default || puppeteerModule;
+  console.log(`[Worker:${workerId}] Launching shared Playwright browser with memory optimizations...`);
+  const { chromium } = await import('playwright');
 
-  const cacheDir = `/tmp/puppeteer_cache_worker_${workerId}`;
+  const cacheDir = `/tmp/playwright_cache_worker_${workerId}`;
   if (fs.existsSync(cacheDir)) {
     try {
       fs.rmSync(cacheDir, { recursive: true, force: true });
@@ -1037,9 +1046,8 @@ async function boot() {
     }
   }
 
-  browserInstance = await puppeteer.launch({
-    headless: "new",
-    userDataDir: cacheDir,
+  const launchOptions = {
+    headless: true,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -1073,10 +1081,24 @@ async function boot() {
       '--disable-client-side-phishing-detection',
       '--memory-pressure-off'
     ]
-  });
+  };
+
+  try {
+    browserInstance = await chromium.launch(launchOptions);
+  } catch (launchErr) {
+    if (launchErr.message.includes('Executable doesn\'t exist') || launchErr.message.includes('playwright install')) {
+      console.log(`[Worker:${workerId}] Chromium binary missing. Automatically running 'npx playwright install chromium'...`);
+      const { execSync } = await import('child_process');
+      execSync('npx playwright install chromium', { stdio: 'inherit' });
+      console.log(`[Worker:${workerId}] Playwright Chromium binary installed! Retrying browser launch...`);
+      browserInstance = await chromium.launch(launchOptions);
+    } else {
+      throw launchErr;
+    }
+  }
 
   browserInstance.on('disconnected', () => {
-    console.warn(`[Worker:${workerId}] Shared Puppeteer browser disconnected! Shutting down...`);
+    console.warn(`[Worker:${workerId}] Shared Playwright browser disconnected! Shutting down...`);
     shutdown(1);
   });
 

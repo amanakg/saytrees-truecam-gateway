@@ -288,20 +288,32 @@ class AccountPage {
           }, 500);
         });
 
-        // Wait for device list to load as a sign of full SDK readiness
+        // Wait for device list to load as a sign of full SDK readiness.
+        // NOTE: We do NOT call the DOM getDeviceList() function because it
+        // internally throws "Encrypted data is not a string: {}" which prevents
+        // loaded = true from ever being set. Instead we call the API directly
+        // and manually populate the DOM dropdown that the SDK relies on.
         let loaded = false;
         let listAttempts = 0;
         let devices = [];
         while (!loaded && listAttempts < 15) {
           listAttempts++;
           try {
-            await getDeviceList(); // CRITICAL: Populates the DOM dropdown which SDK relies on!
             let res = await window.ConnectApi.getDeviceList();
             if (res && res.data && res.data.data && res.data.data.list) {
               devices = res.data.data.list.map(d => d.deviceParams);
+              // Manually populate the DOM dropdown (same as what getDeviceList() does)
+              const select = document.getElementById('dev_id');
+              if (select) {
+                select.innerHTML = res.data.data.list.map(device => {
+                  const p = device.deviceParams;
+                  return `<option value="${p.productId}:${p.deviceUuid}:${p.deviceSecret}">${p.deviceUuid}</option>`;
+                }).join('');
+              }
             }
             loaded = true;
           } catch (err) {
+            console.error('[AccountPage] getDeviceList attempt failed:', err && err.message);
             await new Promise(r => setTimeout(r, 2000));
           }
         }
@@ -1246,7 +1258,6 @@ async function shutdown(exitCode = 0) {
   }
 
   if (sdkHttpServer) await new Promise(r => sdkHttpServer.close(() => r()));
-  if (dashboardHttpServer) await new Promise(r => dashboardHttpServer.close(() => r()));
 
   db.close();
 

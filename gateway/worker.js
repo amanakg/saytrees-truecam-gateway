@@ -866,12 +866,16 @@ class CameraBridge {
                     let formattedDevId = "";
                     const devSelect = document.getElementById("dev_id");
                     if (devSelect) {
+                      console.log(`[Browser] [Debug] Looking for devId="${devId}" in dropdown. Options count: ${devSelect.options.length}`);
                       for (let i = 0; i < devSelect.options.length; i++) {
+                        console.log(`[Browser] [Debug] Option[${i}] text="${devSelect.options[i].text}" value="${devSelect.options[i].value}"`);
                         if (devSelect.options[i].text === devId) {
                           formattedDevId = devSelect.options[i].value;
                           break;
                         }
                       }
+                    } else {
+                      console.log(`[Browser] [Debug] dev_id dropdown element not found!`);
                     }
 
                     if (!formattedDevId) {

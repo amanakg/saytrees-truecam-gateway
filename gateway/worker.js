@@ -288,37 +288,9 @@ class AccountPage {
           }, 500);
         });
 
-        // Wait for device list to load as a sign of full SDK readiness.
-        // NOTE: We do NOT call the DOM getDeviceList() function because it
-        // internally throws "Encrypted data is not a string: {}" which prevents
-        // loaded = true from ever being set. Instead we call the API directly
-        // and manually populate the DOM dropdown that the SDK relies on.
-        let loaded = false;
-        let listAttempts = 0;
-        let devices = [];
-        while (!loaded && listAttempts < 15) {
-          listAttempts++;
-          try {
-            let res = await window.ConnectApi.getDeviceList();
-            if (res && res.data && res.data.data && res.data.data.list) {
-              devices = res.data.data.list.map(d => d.deviceParams);
-              // Manually populate the DOM dropdown (same as what getDeviceList() does)
-              const select = document.getElementById('dev_id');
-              if (select) {
-                select.innerHTML = res.data.data.list.map(device => {
-                  const p = device.deviceParams;
-                  return `<option value="${p.productId}:${p.deviceUuid}:${p.deviceSecret}">${p.deviceUuid}</option>`;
-                }).join('');
-              }
-            }
-            loaded = true;
-          } catch (err) {
-            console.error('[AccountPage] getDeviceList attempt failed:', err && err.message);
-            await new Promise(r => setTimeout(r, 2000));
-          }
-        }
-        if (!loaded) throw new Error("Timeout waiting for getDeviceList");
-        window.__deviceList = devices; // Pass back to Node
+        // NOTE: getDeviceList is intentionally NOT called here.
+        // The WASM SDK decryption layer is not ready immediately after login.
+        // We call it AFTER the 8s WASM init wait in a separate evaluate below.
 
         // Override rendering APIs to prevent the SDK from allocating canvas buffers
         // This saves 20-80MB per page since we don't need to display video visually.
@@ -367,7 +339,45 @@ class AccountPage {
         }, 100);
       }, { acc: this.accountEmail, pwd: this.accountPassword });
 
-      // Auto-sync cameras from Tuya SDK back to the local database
+      // Auto-sync is deferred to after the 8s WASM wait (see below)
+
+      console.log(`[AccountPage:${this.accountEmail}] Waiting 8s for Tuya WASM SDK to finish internal initialization...`);
+      await new Promise(r => setTimeout(r, 8000));
+
+      // NOW call getDeviceList - WASM is fully initialized, decryption works correctly
+      console.log(`[AccountPage:${this.accountEmail}][${deviceId}] Fetching device list after WASM init...`);
+      await page.evaluate(async () => {
+        let devices = [];
+        let attempts = 0;
+        while (attempts < 5) {
+          attempts++;
+          try {
+            const res = await window.ConnectApi.getDeviceList();
+            if (res && res.data && res.data.data && res.data.data.list && res.data.data.list.length > 0) {
+              devices = res.data.data.list.map(d => d.deviceParams);
+              const select = document.getElementById('dev_id');
+              if (select) {
+                select.innerHTML = res.data.data.list.map(device => {
+                  const p = device.deviceParams;
+                  return `<option value="${p.productId}:${p.deviceUuid}:${p.deviceSecret}">${p.deviceUuid}</option>`;
+                }).join('');
+              }
+              console.log(`[Browser] Device dropdown populated with ${devices.length} device(s).`);
+              break;
+            } else {
+              console.log(`[Browser] getDeviceList returned empty list, attempt ${attempts}/5. Retrying in 2s...`);
+              await new Promise(r => setTimeout(r, 2000));
+            }
+          } catch (err) {
+            console.error('[Browser] getDeviceList failed:', err && err.message);
+            await new Promise(r => setTimeout(r, 2000));
+          }
+        }
+        window.__deviceList = devices;
+      });
+
+
+      // Auto-sync newly found cameras to registry (now that __deviceList is populated)
       const deviceList = await page.evaluate(() => window.__deviceList || []);
       if (deviceList.length > 0) {
         console.log(`[AccountPage:${this.accountEmail}][${deviceId}] Found ${deviceList.length} cameras. Auto-syncing to registry...`);
@@ -396,9 +406,6 @@ class AccountPage {
           }
         }
       }
-
-      console.log(`[AccountPage:${this.accountEmail}] Waiting 8s for Tuya WASM SDK to finish internal initialization...`);
-      await new Promise(r => setTimeout(r, 8000));
 
       console.log(`[AccountPage:${this.accountEmail}][${deviceId}] Dedicated page tab is ready!`);
       this.pages.set(deviceId, page);

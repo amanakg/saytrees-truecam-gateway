@@ -625,7 +625,10 @@ class CameraBridge {
   }
 
   scheduleProactiveRefresh() {
-    if (this.refreshTimer) clearTimeout(this.refreshTimer);
+    // If the 8.5-minute timer is already running, do NOT reset it.
+    // This prevents periodic Tuya metadata frames from constantly pushing the timer back.
+    if (this.refreshTimer) return;
+    
     this.refreshTimer = setTimeout(async () => {
       this.log(`Proactive 8.5 min refresh triggered to avoid 10 min Tuya stream timeout. Executing seamless refresh...`);
       try {

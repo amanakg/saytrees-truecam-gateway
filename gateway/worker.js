@@ -251,6 +251,10 @@ class AccountPage {
       page.on('pageerror', (err) => {
         console.error(`[Browser Error] ${err.toString()}`);
       });
+      page.on('dialog', async (dialog) => {
+        console.log(`[Browser Dialog] ${dialog.message()}`);
+        await dialog.accept();
+      });
 
       // Block unnecessary resources to save RAM
       await page.route('**/*', (route) => {

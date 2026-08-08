@@ -251,21 +251,49 @@ class AccountPage {
       page.on('pageerror', (err) => {
         console.error(`[Browser Error] ${err.toString()}`);
       });
+      page.on('dialog', async (dialog) => {
+        console.log(`[Browser Dialog] ${dialog.message()}`);
+        await dialog.accept();
+      });
 
       // Block unnecessary resources to save RAM
-      await page.setRequestInterception(true);
-      page.on('request', (req) => {
-        const type = req.resourceType();
+      await page.route('**/*', (route) => {
+        const type = route.request().resourceType();
         if (['image', 'font', 'stylesheet'].includes(type)) {
-          req.abort();
+          route.abort();
         } else {
-          req.continue();
+          route.continue();
         }
       });
-      await page.goto('http://localhost:8000/', { waitUntil: 'networkidle2' });
+      await page.goto('http://localhost:8000/', { waitUntil: 'domcontentloaded' });
 
       console.log(`[AccountPage:${this.accountEmail}][${deviceId}] Running login sequence...`);
-      await page.evaluate(async (acc, pwd) => {
+      await page.evaluate(async ({ acc, pwd }) => {
+        // STEP 1: The page loads with a hardcoded access_token that works for the device list API.
+        // Call getDeviceList NOW (before login) while the hardcoded token is still active.
+        // This populates the dropdown correctly. The fresh login token causes decryption issues.
+        console.log('[Browser] Step 1: Fetching device list with existing hardcoded token...');
+        try {
+          const res = await window.ConnectApi.getDeviceList();
+          if (res && res.data && res.data.data && res.data.data.list && res.data.data.list.length > 0) {
+            const select = document.getElementById('dev_id');
+            if (select) {
+              select.innerHTML = res.data.data.list.map(device => {
+                const p = device.deviceParams;
+                return `<option value="${p.productId}:${p.deviceUuid}:${p.deviceSecret}">${p.deviceUuid}</option>`;
+              }).join('');
+            }
+            window.__deviceList = res.data.data.list.map(d => d.deviceParams);
+            console.log(`[Browser] Step 1 OK: Dropdown populated with ${res.data.data.list.length} device(s).`);
+          } else {
+            console.log('[Browser] Step 1: getDeviceList returned no devices (hardcoded token may be expired). Will retry after login.');
+          }
+        } catch (e) {
+          console.log('[Browser] Step 1: getDeviceList failed:', e && e.message);
+        }
+
+        // STEP 2: Now do the real login to get a fresh token for P2P camera connections.
+        window.access_token = null;
         document.getElementById('login-account').value = acc;
         document.getElementById('login-password').value = pwd;
         document.getElementById('loginBtn').click();
@@ -284,25 +312,28 @@ class AccountPage {
           }, 500);
         });
 
-        // Wait for device list to load as a sign of full SDK readiness
-        let loaded = false;
-        let listAttempts = 0;
-        let devices = [];
-        while (!loaded && listAttempts < 15) {
-          listAttempts++;
+        // STEP 3: If the dropdown is still empty after login (hardcoded token was expired),
+        // try getDeviceList again with the fresh token as a fallback.
+        const dropdownCount = document.getElementById('dev_id') ? document.getElementById('dev_id').options.length : 0;
+        if (dropdownCount === 0) {
+          console.log('[Browser] Step 3: Dropdown still empty, retrying getDeviceList with fresh token...');
           try {
-            await getDeviceList(); // CRITICAL: Populates the DOM dropdown which SDK relies on!
-            let res = await window.ConnectApi.getDeviceList();
-            if (res && res.data && res.data.data && res.data.data.list) {
-              devices = res.data.data.list.map(d => d.deviceParams);
+            const res = await window.ConnectApi.getDeviceList();
+            if (res && res.data && res.data.data && res.data.data.list && res.data.data.list.length > 0) {
+              const select = document.getElementById('dev_id');
+              if (select) {
+                select.innerHTML = res.data.data.list.map(device => {
+                  const p = device.deviceParams;
+                  return `<option value="${p.productId}:${p.deviceUuid}:${p.deviceSecret}">${p.deviceUuid}</option>`;
+                }).join('');
+              }
+              window.__deviceList = res.data.data.list.map(d => d.deviceParams);
+              console.log(`[Browser] Step 3 OK: Dropdown populated with ${res.data.data.list.length} device(s).`);
             }
-            loaded = true;
-          } catch (err) {
-            await new Promise(r => setTimeout(r, 2000));
+          } catch (e) {
+            console.log('[Browser] Step 3 failed:', e && e.message);
           }
         }
-        if (!loaded) throw new Error("Timeout waiting for getDeviceList");
-        window.__deviceList = devices; // Pass back to Node
 
         // Override rendering APIs to prevent the SDK from allocating canvas buffers
         // This saves 20-80MB per page since we don't need to display video visually.
@@ -349,9 +380,47 @@ class AccountPage {
             console.log('[Browser] Global Multiplexed Interceptor installed (or re-installed).');
           }
         }, 100);
-      }, this.accountEmail, this.accountPassword);
+      }, { acc: this.accountEmail, pwd: this.accountPassword });
 
-      // Auto-sync cameras from Tuya SDK back to the local database
+      // Auto-sync is deferred to after the 8s WASM wait (see below)
+
+      console.log(`[AccountPage:${this.accountEmail}] Waiting 8s for Tuya WASM SDK to finish internal initialization...`);
+      await new Promise(r => setTimeout(r, 8000));
+
+      // NOW call getDeviceList - WASM is fully initialized, decryption works correctly
+      console.log(`[AccountPage:${this.accountEmail}][${deviceId}] Fetching device list after WASM init...`);
+      await page.evaluate(async () => {
+        let devices = [];
+        let attempts = 0;
+        while (attempts < 5) {
+          attempts++;
+          try {
+            const res = await window.ConnectApi.getDeviceList();
+            if (res && res.data && res.data.data && res.data.data.list && res.data.data.list.length > 0) {
+              devices = res.data.data.list.map(d => d.deviceParams);
+              const select = document.getElementById('dev_id');
+              if (select) {
+                select.innerHTML = res.data.data.list.map(device => {
+                  const p = device.deviceParams;
+                  return `<option value="${p.productId}:${p.deviceUuid}:${p.deviceSecret}">${p.deviceUuid}</option>`;
+                }).join('');
+              }
+              console.log(`[Browser] Device dropdown populated with ${devices.length} device(s).`);
+              break;
+            } else {
+              console.log(`[Browser] getDeviceList returned empty list, attempt ${attempts}/5. Retrying in 2s...`);
+              await new Promise(r => setTimeout(r, 2000));
+            }
+          } catch (err) {
+            console.error('[Browser] getDeviceList failed:', err && err.message);
+            await new Promise(r => setTimeout(r, 2000));
+          }
+        }
+        window.__deviceList = devices;
+      });
+
+
+      // Auto-sync newly found cameras to registry (now that __deviceList is populated)
       const deviceList = await page.evaluate(() => window.__deviceList || []);
       if (deviceList.length > 0) {
         console.log(`[AccountPage:${this.accountEmail}][${deviceId}] Found ${deviceList.length} cameras. Auto-syncing to registry...`);
@@ -371,6 +440,7 @@ class AccountPage {
                 accountPasswordRef: this.accountPassword,
                 streamName: streamName,
                 workerId: workerId,
+                productId: dev.productId, // Auto-capture productId for new cameras
                 status: 'offline'
               });
               console.log(`[AccountPage] Registered new camera ${dev.deviceUuid} mapped to stream: live/${streamName}`);
@@ -380,9 +450,6 @@ class AccountPage {
           }
         }
       }
-
-      console.log(`[AccountPage:${this.accountEmail}] Waiting 8s for Tuya WASM SDK to finish internal initialization...`);
-      await new Promise(r => setTimeout(r, 8000));
 
       console.log(`[AccountPage:${this.accountEmail}][${deviceId}] Dedicated page tab is ready!`);
       this.pages.set(deviceId, page);
@@ -428,6 +495,7 @@ class CameraBridge {
   constructor(device, wsPort, accountManager) {
     this.deviceId = device.device_id;
     this.deviceSecret = device.device_secret;
+    this.productId = device.product_id || null; // Tuya productId for constructing formattedDevId
     this.nickname = device.nickname || device.device_id;
     this.accountEmail = device.account_email;
     this.accountPassword = device.account_password_ref;
@@ -508,16 +576,7 @@ class CameraBridge {
         this.circuitBreakerStrikes = 0;
         this.hasEverConnected = true;
 
-        if (this.refreshTimer) clearTimeout(this.refreshTimer);
-        this.refreshTimer = setTimeout(async () => {
-          this.log(`Proactive 8.5 min refresh triggered to avoid 10 min Tuya stream timeout. Executing seamless refresh...`);
-          try {
-            await this.connectCameraInPage();
-          } catch (err) {
-            this.error(`Seamless proactive refresh failed: ${err.message}. Fallback to standard reconnect...`);
-            this.triggerReconnect();
-          }
-        }, 8 * 60 * 1000 + 30 * 1000); // 8 minutes 30 seconds
+        this.scheduleProactiveRefresh();
 
         if (Buffer.isBuffer(message)) {
           this.log(`First 20 bytes: ${message.slice(0, 20).toString('hex')}`);
@@ -535,9 +594,10 @@ class CameraBridge {
             const resolution = initData.width && initData.height ? `${initData.width}x${initData.height}` : 'unknown';
             const fps = initData.fps || 0;
             db.updateMetadata(this.deviceId, codec, resolution, fps);
-            if (!this.ffmpegProcess) {
-              this.startFfmpeg(initData);
-            }
+            // Start/continue FFmpeg pipeline
+            this.startFfmpeg(initData);
+            // Re-schedule the 8.5 minute proactive refresh timer for the next cycle (17m, 25.5m, etc.)
+            this.scheduleProactiveRefresh();
           }
         } catch (e) { }
         return;
@@ -564,7 +624,30 @@ class CameraBridge {
     });
   }
 
+  scheduleProactiveRefresh() {
+    // If the 8.5-minute timer is already running, do NOT reset it.
+    // This prevents periodic Tuya metadata frames from constantly pushing the timer back.
+    if (this.refreshTimer) return;
+    
+    this.refreshTimer = setTimeout(async () => {
+      this.refreshTimer = null; // Clear the timer ID so the next cycle can be scheduled
+      this.log(`Proactive 8.5 min refresh triggered to avoid 10 min Tuya stream timeout. Executing seamless refresh...`);
+      try {
+        await this.connectCameraInPage();
+      } catch (err) {
+        this.error(`Seamless proactive refresh failed: ${err.message}. Fallback to standard reconnect...`);
+        this.triggerReconnect();
+      }
+    }, 8 * 60 * 1000 + 30 * 1000); // 8 minutes 30 seconds (510,000 ms)
+  }
+
   startFfmpeg(initData) {
+    // If FFmpeg is already active and healthy, keep the stdin pipe open for seamless zero-lag streaming
+    if (this.ffmpegProcess && !this.ffmpegProcess.killed && this.ffmpegProcess.stdin && this.ffmpegProcess.stdin.writable) {
+      this.log(`FFmpeg pipeline already active for RTSP: ${this.streamUrl}. Continuing seamless stream handover.`);
+      return;
+    }
+
     this.killFfmpeg();
     const isH265 = initData.enc && (initData.enc.includes('265') || initData.enc.includes('hevc'));
     const inputFormat = isH265 ? 'hevc' : 'h264';
@@ -628,6 +711,7 @@ class CameraBridge {
   }
 
   cleanupSession() {
+    this.log(`[Worker Debug] Cleaning up active socket and timers...`);
     if (this.watchdogInterval) {
       clearInterval(this.watchdogInterval);
       this.watchdogInterval = null;
@@ -806,7 +890,7 @@ class CameraBridge {
       await this.accountManager.runSerializedInjection(this.deviceId, async () => {
         this.log('Injecting connection command into shared page...');
 
-        await page.evaluate((devId, devSecret, wsPort) => {
+        await page.evaluate(({ devId, devSecret, wsPort, productId }) => {
           return new Promise((resolve) => {
             window.__wsConnections = window.__wsConnections || {};
 
@@ -837,22 +921,31 @@ class CameraBridge {
                 setTimeout(() => {
                   if (typeof Player !== 'undefined' && Player.ConnectDevice) {
                     let formattedDevId = "";
-                    const devSelect = document.getElementById("dev_id");
-                    if (devSelect) {
-                      for (let i = 0; i < devSelect.options.length; i++) {
-                        if (devSelect.options[i].text === devId) {
-                          formattedDevId = devSelect.options[i].value;
-                          break;
+
+                    // PRIMARY: Use productId from registry to build formattedDevId directly.
+                    // This bypasses the SDK's getDeviceList() which fails due to expired/broken API token.
+                    if (productId) {
+                      formattedDevId = `${productId}:${devId}:${devSecret}`;
+                      console.log(`[Browser] [Worker] Using registry productId to build formattedDevId for ${devId}.`);
+                    } else {
+                      // FALLBACK: Look up the dropdown (only works when getDeviceList succeeds)
+                      const devSelect = document.getElementById("dev_id");
+                      if (devSelect) {
+                        for (let i = 0; i < devSelect.options.length; i++) {
+                          if (devSelect.options[i].text === devId) {
+                            formattedDevId = devSelect.options[i].value;
+                            break;
+                          }
                         }
                       }
                     }
 
                     if (!formattedDevId) {
-                      console.log("[Browser] ERROR: devId not found in dropdown list!");
+                      console.log("[Browser] ERROR: formattedDevId could not be constructed - productId missing and dropdown empty!");
                       resolve();
                       return;
                     }
-                    console.log(`[Browser] [Worker] ConnectDevice called for ${devId} at ${Date.now()}. Formatted: ${formattedDevId}`);
+                    console.log(`[Browser] [Worker] ConnectDevice called for ${devId}. Formatted: ${formattedDevId}`);
 
                     // Allocate a unique winindex for each camera
                     window.__cameraWinIndexMap = window.__cameraWinIndexMap || {};
@@ -951,7 +1044,7 @@ class CameraBridge {
               setTimeout(proceedToConnect, 100);
             }
           });
-        }, this.deviceId, this.deviceSecret, this.wsPort);
+        }, { devId: this.deviceId, devSecret: this.deviceSecret, wsPort: this.wsPort, productId: this.productId });
 
         // CRITICAL FIX: Give the Tuya WASM SDK enough time to fully execute its C++ connectbykey logic 
         // (including external HTTP requests to Tuya Cloud) before releasing the mutex.
@@ -1023,11 +1116,10 @@ async function boot() {
 
   startHttpServers();
 
-  console.log(`[Worker:${workerId}] Launching shared Puppeteer browser with memory optimizations...`);
-  const puppeteerModule = await import('puppeteer');
-  const puppeteer = puppeteerModule.default || puppeteerModule;
+  console.log(`[Worker:${workerId}] Launching shared Playwright browser with memory optimizations...`);
+  const { chromium } = await import('playwright');
 
-  const cacheDir = `/tmp/puppeteer_cache_worker_${workerId}`;
+  const cacheDir = `/tmp/playwright_cache_worker_${workerId}`;
   if (fs.existsSync(cacheDir)) {
     try {
       fs.rmSync(cacheDir, { recursive: true, force: true });
@@ -1037,9 +1129,8 @@ async function boot() {
     }
   }
 
-  browserInstance = await puppeteer.launch({
-    headless: "new",
-    userDataDir: cacheDir,
+  const launchOptions = {
+    headless: true,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -1073,10 +1164,24 @@ async function boot() {
       '--disable-client-side-phishing-detection',
       '--memory-pressure-off'
     ]
-  });
+  };
+
+  try {
+    browserInstance = await chromium.launch(launchOptions);
+  } catch (launchErr) {
+    if (launchErr.message.includes('Executable doesn\'t exist') || launchErr.message.includes('playwright install')) {
+      console.log(`[Worker:${workerId}] Chromium binary missing. Automatically running 'npx playwright install chromium'...`);
+      const { execSync } = await import('child_process');
+      execSync('npx playwright install chromium', { stdio: 'inherit' });
+      console.log(`[Worker:${workerId}] Playwright Chromium binary installed! Retrying browser launch...`);
+      browserInstance = await chromium.launch(launchOptions);
+    } else {
+      throw launchErr;
+    }
+  }
 
   browserInstance.on('disconnected', () => {
-    console.warn(`[Worker:${workerId}] Shared Puppeteer browser disconnected! Shutting down...`);
+    console.warn(`[Worker:${workerId}] Shared Playwright browser disconnected! Shutting down...`);
     shutdown(1);
   });
 
@@ -1143,6 +1248,7 @@ async function boot() {
                   accountPasswordRef: accountPage.accountPassword,
                   streamName: streamName,
                   workerId: workerId,
+                  productId: dev.productId, // Auto-capture productId for new cameras
                   status: 'offline'
                 });
               } catch (e) {
@@ -1219,7 +1325,6 @@ async function shutdown(exitCode = 0) {
   }
 
   if (sdkHttpServer) await new Promise(r => sdkHttpServer.close(() => r()));
-  if (dashboardHttpServer) await new Promise(r => dashboardHttpServer.close(() => r()));
 
   db.close();
 

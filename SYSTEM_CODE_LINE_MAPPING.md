@@ -8,22 +8,22 @@ This document maps every single step of the **TrueView Cloud to WebRTC Architect
 
 | Step # | Architecture Step | File Path | Exact Line Numbers | Code Symbol / Method |
 | :---: | :--- | :--- | :--- | :--- |
-| **1** | **worker.js starts Headless Chrome** | [`gateway/worker.js`](file:///d:/enarxi/Cam/truecam/gateway/worker.js) | [L1040–L1076](file:///d:/enarxi/Cam/truecam/gateway/worker.js#L1040-L1076) | `puppeteer.launch({ headless: "new" })` |
-| **2** | **TrueView SDK Loads** | [`gateway/worker.js`](file:///d:/enarxi/Cam/truecam/gateway/worker.js) <br> [`sdk_dist/`](file:///d:/enarxi/Cam/truecam/sdk_dist/) | [L265](file:///d:/enarxi/Cam/truecam/gateway/worker.js#L265) <br> `sdk_dist/*` | `page.goto('http://localhost:8000/')`<br>`play.js`, `connector.js`, `mqtt.js` |
-| **3** | **Authentication & Device List** | [`gateway/worker.js`](file:///d:/enarxi/Cam/truecam/gateway/worker.js) | [L268–L305](file:///d:/enarxi/Cam/truecam/gateway/worker.js#L268-L305) | `page.evaluate()` login click & token check |
-| **4** | **P2P Camera Connection** | [`gateway/worker.js`](file:///d:/enarxi/Cam/truecam/gateway/worker.js) | [L685–L715](file:///d:/enarxi/Cam/truecam/gateway/worker.js#L685-L715) | `window.ConnectApi.ConnectDevice(uuid, secret)` |
+| **1** | **worker.js starts Headless Chrome** | [`gateway/worker.js`](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js) | [L1035–L1085](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js#L1035-L1085) | `chromium.launch({ headless: true })` |
+| **2** | **TrueView SDK Loads** | [`gateway/worker.js`](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js) <br> [`sdk_dist/`](file:///d:/Projects/truecam(main)/truecam/truecam/sdk_dist/) | [L264](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js#L264) <br> `sdk_dist/*` | `page.goto('http://localhost:8000/')`<br>`play.js`, `connector.js`, `mqtt.js` |
+| **3** | **Authentication & Device List** | [`gateway/worker.js`](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js) | [L267–L355](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js#L267-L355) | `page.evaluate()` login click & token check |
+| **4** | **P2P Camera Connection** | [`gateway/worker.js`](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js) | [L802–L950](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js#L802-L950) | `window.ConnectApi.ConnectDevice(uuid, secret)` |
 | **5** | **Video Packets Ingestion** | UDP P2P Network | Encrypted P2P | H.264/H.265 frames from 4G Camera |
-| **6** | **`onrecvframeex()` Callback** | [`gateway/worker.js`](file:///d:/enarxi/Cam/truecam/gateway/worker.js) <br> [`sdk_dist/play.js`](file:///d:/enarxi/Cam/truecam/sdk_dist/play.js) | [L327](file:///d:/enarxi/Cam/truecam/gateway/worker.js#L327) | `window.ConnectApi.onrecvframeex` |
-| **7** | **Monkey Patch Interceptor** | [`gateway/worker.js`](file:///d:/enarxi/Cam/truecam/gateway/worker.js) | [L326–L350](file:///d:/enarxi/Cam/truecam/gateway/worker.js#L326-L350) | Interceptor wrapper in `page.evaluate()` |
-| **8** | **WebSocket Packet Dispatch** | [`gateway/worker.js`](file:///d:/enarxi/Cam/truecam/gateway/worker.js) | [L338](file:///d:/enarxi/Cam/truecam/gateway/worker.js#L338) | `ws.send(data)` to `ws://localhost:8080` |
-| **9** | **worker.js Receives Packets** | [`gateway/worker.js`](file:///d:/enarxi/Cam/truecam/gateway/worker.js) | [L499–L556](file:///d:/enarxi/Cam/truecam/gateway/worker.js#L499-L556) | `socket.on('message', message => ...)` |
-| **10** | **Send Packets to FFmpeg** | [`gateway/worker.js`](file:///d:/enarxi/Cam/truecam/gateway/worker.js) | [L548](file:///d:/enarxi/Cam/truecam/gateway/worker.js#L548) | `this.ffmpegProcess.stdin.write(message)` |
-| **11** | **FFmpeg Creates RTSP Stream** | [`gateway/worker.js`](file:///d:/enarxi/Cam/truecam/gateway/worker.js) | [L574–L592](file:///d:/enarxi/Cam/truecam/gateway/worker.js#L574-L592) | `spawn(ffmpegPath, ffmpegArgs)` (`-c:v copy`) |
-| **12** | **MediaMTX Ingests RTSP** | [`gateway/mediamtx.yml`](file:///d:/enarxi/Cam/truecam/gateway/mediamtx.yml) | Port `8554` | RTSP Server listener (`rtsp://127.0.0.1:8554/`) |
-| **13** | **WebRTC / WHEP Conversion** | [`gateway/mediamtx.yml`](file:///d:/enarxi/Cam/truecam/gateway/mediamtx.yml) | Port `8889` | WHEP HTTP WebRTC Multiplexer |
-| **14** | **server.js Discovery API** | [`gateway/api/server.js`](file:///d:/enarxi/Cam/truecam/gateway/api/server.js) | [L58–L87](file:///d:/enarxi/Cam/truecam/gateway/api/server.js#L58-L87) | `GET /api/clients/:clientId/cameras` |
-| **15** | **reader.js WHEP Handshake** | [`dashboard_main/reader.js`](file:///d:/enarxi/Cam/truecam/dashboard_main/reader.js) | [L75–L120](file:///d:/enarxi/Cam/truecam/dashboard_main/reader.js#L75-L120) | `MediaMTXWebRTCReader.connect()` |
-| **16** | **Browser Displays Video** | [`dashboard_main/reader.js`](file:///d:/enarxi/Cam/truecam/dashboard_main/reader.js) | [L60–L70](file:///d:/enarxi/Cam/truecam/dashboard_main/reader.js#L60-L70) | `this.peerConnection.ontrack` -> `<video>` |
+| **6** | **`onrecvframeex()` Callback** | [`gateway/worker.js`](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js) <br> [`sdk_dist/play.js`](file:///d:/Projects/truecam(main)/truecam/truecam/sdk_dist/play.js) | [L328](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js#L328) | `window.ConnectApi.onrecvframeex` |
+| **7** | **Monkey Patch Interceptor** | [`gateway/worker.js`](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js) | [L325–L350](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js#L325-L350) | Interceptor wrapper in `page.evaluate()` |
+| **8** | **WebSocket Packet Dispatch** | [`gateway/worker.js`](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js) | [L339](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js#L339) | `ws.send(data)` to `ws://localhost:8080` |
+| **9** | **worker.js Receives Packets** | [`gateway/worker.js`](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js) | [L498–L550](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js#L498-L550) | `socket.on('message', message => ...)` |
+| **10** | **Send Packets to FFmpeg** | [`gateway/worker.js`](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js) | [L545](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js#L545) | `this.ffmpegProcess.stdin.write(message)` |
+| **11** | **FFmpeg Creates RTSP Stream** | [`gateway/worker.js`](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js) | [L580–L610](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js#L580-L610) | `spawn(ffmpegPath, ffmpegArgs)` (`-c:v copy`) |
+| **12** | **MediaMTX Ingests RTSP** | [`gateway/mediamtx.yml`](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/mediamtx.yml) | Port `8554` | RTSP Server listener (`rtsp://127.0.0.1:8554/`) |
+| **13** | **WebRTC / WHEP Conversion** | [`gateway/mediamtx.yml`](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/mediamtx.yml) | Port `8889` | WHEP HTTP WebRTC Multiplexer |
+| **14** | **server.js Discovery API** | [`gateway/api/server.js`](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/api/server.js) | [L58–L87](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/api/server.js#L58-L87) | `GET /api/clients/:clientId/cameras` |
+| **15** | **reader.js WHEP Handshake** | [`dashboard_main/reader.js`](file:///d:/Projects/truecam(main)/truecam/truecam/dashboard_main/reader.js) | [L75–L120](file:///d:/Projects/truecam(main)/truecam/truecam/dashboard_main/reader.js#L75-L120) | `MediaMTXWebRTCReader.connect()` |
+| **16** | **Browser Displays Video** | [`dashboard_main/reader.js`](file:///d:/Projects/truecam(main)/truecam/truecam/dashboard_main/reader.js) | [L60–L70](file:///d:/Projects/truecam(main)/truecam/truecam/dashboard_main/reader.js#L60-L70) | `this.peerConnection.ontrack` -> `<video>` |
 
 ---
 
@@ -31,10 +31,10 @@ This document maps every single step of the **TrueView Cloud to WebRTC Architect
 
 | Feature / Component | File Path | Exact Line Numbers | Code Snippet / Detail |
 | :--- | :--- | :--- | :--- |
-| **Proactive Timer Setup** | [`gateway/worker.js`](file:///d:/enarxi/Cam/truecam/gateway/worker.js) | [L511–L520](file:///d:/enarxi/Cam/truecam/gateway/worker.js#L511-L520) | `setTimeout(..., 8 * 60 * 1000 + 30 * 1000);` |
-| **In-Page Re-connection** | [`gateway/worker.js`](file:///d:/enarxi/Cam/truecam/gateway/worker.js) | [L680–L720](file:///d:/enarxi/Cam/truecam/gateway/worker.js#L680-L720) | `connectCameraInPage()` executing `ConnectDevice()` |
-| **Fallback Error Handling** | [`gateway/worker.js`](file:///d:/enarxi/Cam/truecam/gateway/worker.js) | [L516–L518](file:///d:/enarxi/Cam/truecam/gateway/worker.js#L516-L518) | `catch (err) { this.triggerReconnect(); }` |
-| **Emergency Watchdog (Safety Net)** | [`gateway/worker.js`](file:///d:/enarxi/Cam/truecam/gateway/worker.js) | [L485–L497](file:///d:/enarxi/Cam/truecam/gateway/worker.js#L485-L497) | `setInterval` checking `idleTime > 15000` |
+| **Proactive Timer Setup** | [`gateway/worker.js`](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js) | [L560–L572](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js#L560-L572) | `scheduleProactiveRefresh()` (`510,000ms`) |
+| **In-Page Re-connection** | [`gateway/worker.js`](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js) | [L802–L950](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js#L802-L950) | `connectCameraInPage()` executing `ConnectDevice()` |
+| **Fallback Error Handling** | [`gateway/worker.js`](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js) | [L567–L570](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js#L567-L570) | `catch (err) { this.triggerReconnect(); }` |
+| **Emergency Watchdog (Safety Net)** | [`gateway/worker.js`](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js) | [L485–L497](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js#L485-L497) | `setInterval` checking `idleTime > 15000` |
 
 ---
 

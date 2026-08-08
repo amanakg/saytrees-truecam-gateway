@@ -59,7 +59,7 @@ Instead of reactively waiting for the connection to crash at 10 minutes, the gat
 sequenceDiagram
     autonumber
     participant Tuya as Tuya Cloud P2P
-    participant Page as Browser Tab (Puppeteer)
+    participant Page as Browser Tab (Playwright)
     participant Worker as Gateway Worker.js
     participant FFmpeg as FFmpeg Process
     participant MTX as MediaMTX RTSP
@@ -67,7 +67,7 @@ sequenceDiagram
     Tuya->>Page: Send Audio/Video Frames
     Page->>Worker: Forward via WebSocket pipe
     Worker->>FFmpeg: Write to stdin (pipe:0)
-    Worker->>Worker: Start 8.5-Minute Timer (510,000 ms)
+    Worker->>Worker: scheduleProactiveRefresh() Timer (510,000 ms)
     
     Note over Worker: Timer Countdown (0:00 -> 8:30 min)...
     
@@ -76,28 +76,29 @@ sequenceDiagram
     Page->>Tuya: Re-handshake P2P Session Token
     Tuya-->>Page: Stream Session Renewed (New IDR Keyframe)
     Page->>Worker: Continue pushing WebSockets (No gap)
-    Worker->>Worker: Reset 8.5-Minute Timer for next cycle (8:30 -> 17:00)
+    Worker->>Worker: scheduleProactiveRefresh() Arms Timer for Next Cycle (17:00, 25:30...)
 ```
 
 ### Step-by-Step Code Execution
 
-1. **Timer Initialization ([`gateway/worker.js: L511–L520`](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js#L511-L520))**:
-   When the first frame of a session arrives, `worker.js` schedules the timer:
+1. **Timer Initialization & Recurrence ([`gateway/worker.js: L560–L572`](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js#L560-L572))**:
+   When initial frames or frame metadata arrive, `worker.js` invokes `scheduleProactiveRefresh()`:
    ```javascript
-   if (this.refreshTimer) clearTimeout(this.refreshTimer);
-
-   this.refreshTimer = setTimeout(async () => {
-     this.log(`Proactive 8.5 min refresh triggered to avoid 10 min Tuya stream timeout...`);
-     try {
-       await this.connectCameraInPage();
-     } catch (err) {
-       this.triggerReconnect();
-     }
-   }, 8 * 60 * 1000 + 30 * 1000); // 510,000 milliseconds
+   scheduleProactiveRefresh() {
+     if (this.refreshTimer) clearTimeout(this.refreshTimer);
+     this.refreshTimer = setTimeout(async () => {
+       this.log(`Proactive 8.5 min refresh triggered to avoid 10 min Tuya stream timeout...`);
+       try {
+         await this.connectCameraInPage();
+       } catch (err) {
+         this.triggerReconnect();
+       }
+     }, 8 * 60 * 1000 + 30 * 1000); // 8m30s = 510,000 milliseconds
+   }
    ```
 
-2. **In-Page Injection ([`gateway/worker.js: L806–L860`](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js#L806-L860))**:
-   At $t = 8:30$, `connectCameraInPage()` calls `Player.ConnectDevice(devId)` inside the browser page via Puppeteer `page.evaluate()`.
+2. **In-Page Injection ([`gateway/worker.js: L802–L850`](file:///d:/Projects/truecam(main)/truecam/truecam/gateway/worker.js#L802-L850))**:
+   At $t = 8:30$, `connectCameraInPage()` calls `Player.ConnectDevice(devId)` inside the browser page via Playwright `page.evaluate()`.
 
 3. **In-Place Session Renewal**:
    Tuya Web SDK updates the P2P connection tokens in the background without closing the WebSocket frame pipe.
@@ -124,6 +125,7 @@ Kill FFmpeg ──► Teardown Socket ──► Wait 25s WASM Cleanup ──► 
 ✅ 8.5m PROACTIVE REFRESH (0s Lag):
 FFmpeg Running ──► Pipe Open ──► Background P2P Handshake ──► Instant Keyframe Received
 └──────────────────────────────── 0s LAG / SMOOTH VIDEO ────────────────────────────────┘
+
 ```
 
 ---

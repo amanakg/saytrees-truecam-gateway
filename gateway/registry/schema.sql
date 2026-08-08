@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS devices (
   account_email         TEXT NOT NULL,
   account_password_ref  TEXT NOT NULL, -- references password/secret
   worker_id             TEXT, -- worker ID assigned to handle this camera
+  product_id            TEXT, -- Tuya productId (needed to construct formattedDevId for ConnectDevice)
   status                TEXT DEFAULT 'unknown', -- 'connected', 'reconnecting', 'offline', 'error', 'unknown'
   last_frame_at         DATETIME,
   codec                 TEXT, -- Stream codec (e.g., 'hevc', 'h264')

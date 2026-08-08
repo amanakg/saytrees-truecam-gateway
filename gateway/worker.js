@@ -265,6 +265,7 @@ class AccountPage {
 
       console.log(`[AccountPage:${this.accountEmail}][${deviceId}] Running login sequence...`);
       await page.evaluate(async ({ acc, pwd }) => {
+        window.access_token = null;
         document.getElementById('login-account').value = acc;
         document.getElementById('login-password').value = pwd;
         document.getElementById('loginBtn').click();

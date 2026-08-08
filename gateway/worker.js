@@ -440,6 +440,7 @@ class AccountPage {
                 accountPasswordRef: this.accountPassword,
                 streamName: streamName,
                 workerId: workerId,
+                productId: dev.productId, // Auto-capture productId for new cameras
                 status: 'offline'
               });
               console.log(`[AccountPage] Registered new camera ${dev.deviceUuid} mapped to stream: live/${streamName}`);
@@ -1242,6 +1243,7 @@ async function boot() {
                   accountPasswordRef: accountPage.accountPassword,
                   streamName: streamName,
                   workerId: workerId,
+                  productId: dev.productId, // Auto-capture productId for new cameras
                   status: 'offline'
                 });
               } catch (e) {

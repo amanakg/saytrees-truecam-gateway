@@ -269,6 +269,30 @@ class AccountPage {
 
       console.log(`[AccountPage:${this.accountEmail}][${deviceId}] Running login sequence...`);
       await page.evaluate(async ({ acc, pwd }) => {
+        // STEP 1: The page loads with a hardcoded access_token that works for the device list API.
+        // Call getDeviceList NOW (before login) while the hardcoded token is still active.
+        // This populates the dropdown correctly. The fresh login token causes decryption issues.
+        console.log('[Browser] Step 1: Fetching device list with existing hardcoded token...');
+        try {
+          const res = await window.ConnectApi.getDeviceList();
+          if (res && res.data && res.data.data && res.data.data.list && res.data.data.list.length > 0) {
+            const select = document.getElementById('dev_id');
+            if (select) {
+              select.innerHTML = res.data.data.list.map(device => {
+                const p = device.deviceParams;
+                return `<option value="${p.productId}:${p.deviceUuid}:${p.deviceSecret}">${p.deviceUuid}</option>`;
+              }).join('');
+            }
+            window.__deviceList = res.data.data.list.map(d => d.deviceParams);
+            console.log(`[Browser] Step 1 OK: Dropdown populated with ${res.data.data.list.length} device(s).`);
+          } else {
+            console.log('[Browser] Step 1: getDeviceList returned no devices (hardcoded token may be expired). Will retry after login.');
+          }
+        } catch (e) {
+          console.log('[Browser] Step 1: getDeviceList failed:', e && e.message);
+        }
+
+        // STEP 2: Now do the real login to get a fresh token for P2P camera connections.
         window.access_token = null;
         document.getElementById('login-account').value = acc;
         document.getElementById('login-password').value = pwd;
@@ -288,9 +312,28 @@ class AccountPage {
           }, 500);
         });
 
-        // NOTE: getDeviceList is intentionally NOT called here.
-        // The WASM SDK decryption layer is not ready immediately after login.
-        // We call it AFTER the 8s WASM init wait in a separate evaluate below.
+        // STEP 3: If the dropdown is still empty after login (hardcoded token was expired),
+        // try getDeviceList again with the fresh token as a fallback.
+        const dropdownCount = document.getElementById('dev_id') ? document.getElementById('dev_id').options.length : 0;
+        if (dropdownCount === 0) {
+          console.log('[Browser] Step 3: Dropdown still empty, retrying getDeviceList with fresh token...');
+          try {
+            const res = await window.ConnectApi.getDeviceList();
+            if (res && res.data && res.data.data && res.data.data.list && res.data.data.list.length > 0) {
+              const select = document.getElementById('dev_id');
+              if (select) {
+                select.innerHTML = res.data.data.list.map(device => {
+                  const p = device.deviceParams;
+                  return `<option value="${p.productId}:${p.deviceUuid}:${p.deviceSecret}">${p.deviceUuid}</option>`;
+                }).join('');
+              }
+              window.__deviceList = res.data.data.list.map(d => d.deviceParams);
+              console.log(`[Browser] Step 3 OK: Dropdown populated with ${res.data.data.list.length} device(s).`);
+            }
+          } catch (e) {
+            console.log('[Browser] Step 3 failed:', e && e.message);
+          }
+        }
 
         // Override rendering APIs to prevent the SDK from allocating canvas buffers
         // This saves 20-80MB per page since we don't need to display video visually.

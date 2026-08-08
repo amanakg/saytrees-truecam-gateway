@@ -15,6 +15,14 @@ db.exec(schema);
 
 console.log(`[Registry] Database initialized at: ${dbPath}`);
 
+// Safe migration: add product_id column if it doesn't exist (for existing DBs)
+try {
+  db.exec(`ALTER TABLE devices ADD COLUMN product_id TEXT`);
+  console.log('[Registry] Migrated: added product_id column to devices table.');
+} catch (e) {
+  // Column already exists - ignore
+}
+
 /**
  * Expose Database Client API
  */
@@ -58,11 +66,11 @@ module.exports = {
     const stmt = db.prepare(`
       INSERT INTO devices (
         device_id, device_secret, nickname, client_id, site_name, 
-        stream_name, ingest_tier, account_email, account_password_ref, worker_id, status
+        stream_name, ingest_tier, account_email, account_password_ref, worker_id, product_id, status
       )
       VALUES (
         :device_id, :device_secret, :nickname, :client_id, :site_name, 
-        :stream_name, :ingest_tier, :account_email, :account_password_ref, :worker_id, :status
+        :stream_name, :ingest_tier, :account_email, :account_password_ref, :worker_id, :product_id, :status
       )
       ON CONFLICT(device_id) DO UPDATE SET
         device_secret = excluded.device_secret,
@@ -74,6 +82,7 @@ module.exports = {
         account_email = excluded.account_email,
         account_password_ref = excluded.account_password_ref,
         worker_id = excluded.worker_id,
+        product_id = COALESCE(excluded.product_id, product_id),
         status = COALESCE(excluded.status, status),
         updated_at = CURRENT_TIMESTAMP
     `);
@@ -90,6 +99,7 @@ module.exports = {
       account_email: device.accountEmail,
       account_password_ref: device.accountPasswordRef,
       worker_id: device.workerId || null,
+      product_id: device.productId || null,
       status: device.status || 'unknown'
     };
     

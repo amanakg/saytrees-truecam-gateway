@@ -494,6 +494,7 @@ class CameraBridge {
   constructor(device, wsPort, accountManager) {
     this.deviceId = device.device_id;
     this.deviceSecret = device.device_secret;
+    this.productId = device.product_id || null; // Tuya productId for constructing formattedDevId
     this.nickname = device.nickname || device.device_id;
     this.accountEmail = device.account_email;
     this.accountPassword = device.account_password_ref;
@@ -883,7 +884,7 @@ class CameraBridge {
       await this.accountManager.runSerializedInjection(this.deviceId, async () => {
         this.log('Injecting connection command into shared page...');
 
-        await page.evaluate(({ devId, devSecret, wsPort }) => {
+        await page.evaluate(({ devId, devSecret, wsPort, productId }) => {
           return new Promise((resolve) => {
             window.__wsConnections = window.__wsConnections || {};
 
@@ -914,26 +915,31 @@ class CameraBridge {
                 setTimeout(() => {
                   if (typeof Player !== 'undefined' && Player.ConnectDevice) {
                     let formattedDevId = "";
-                    const devSelect = document.getElementById("dev_id");
-                    if (devSelect) {
-                      console.log(`[Browser] [Debug] Looking for devId="${devId}" in dropdown. Options count: ${devSelect.options.length}`);
-                      for (let i = 0; i < devSelect.options.length; i++) {
-                        console.log(`[Browser] [Debug] Option[${i}] text="${devSelect.options[i].text}" value="${devSelect.options[i].value}"`);
-                        if (devSelect.options[i].text === devId) {
-                          formattedDevId = devSelect.options[i].value;
-                          break;
+
+                    // PRIMARY: Use productId from registry to build formattedDevId directly.
+                    // This bypasses the SDK's getDeviceList() which fails due to expired/broken API token.
+                    if (productId) {
+                      formattedDevId = `${productId}:${devId}:${devSecret}`;
+                      console.log(`[Browser] [Worker] Using registry productId to build formattedDevId for ${devId}.`);
+                    } else {
+                      // FALLBACK: Look up the dropdown (only works when getDeviceList succeeds)
+                      const devSelect = document.getElementById("dev_id");
+                      if (devSelect) {
+                        for (let i = 0; i < devSelect.options.length; i++) {
+                          if (devSelect.options[i].text === devId) {
+                            formattedDevId = devSelect.options[i].value;
+                            break;
+                          }
                         }
                       }
-                    } else {
-                      console.log(`[Browser] [Debug] dev_id dropdown element not found!`);
                     }
 
                     if (!formattedDevId) {
-                      console.log("[Browser] ERROR: devId not found in dropdown list!");
+                      console.log("[Browser] ERROR: formattedDevId could not be constructed - productId missing and dropdown empty!");
                       resolve();
                       return;
                     }
-                    console.log(`[Browser] [Worker] ConnectDevice called for ${devId} at ${Date.now()}. Formatted: ${formattedDevId}`);
+                    console.log(`[Browser] [Worker] ConnectDevice called for ${devId}. Formatted: ${formattedDevId}`);
 
                     // Allocate a unique winindex for each camera
                     window.__cameraWinIndexMap = window.__cameraWinIndexMap || {};
@@ -1032,7 +1038,7 @@ class CameraBridge {
               setTimeout(proceedToConnect, 100);
             }
           });
-        }, { devId: this.deviceId, devSecret: this.deviceSecret, wsPort: this.wsPort });
+        }, { devId: this.deviceId, devSecret: this.deviceSecret, wsPort: this.wsPort, productId: this.productId });
 
         // CRITICAL FIX: Give the Tuya WASM SDK enough time to fully execute its C++ connectbykey logic 
         // (including external HTTP requests to Tuya Cloud) before releasing the mutex.

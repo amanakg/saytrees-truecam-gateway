@@ -630,6 +630,7 @@ class CameraBridge {
     if (this.refreshTimer) return;
     
     this.refreshTimer = setTimeout(async () => {
+      this.refreshTimer = null; // Clear the timer ID so the next cycle can be scheduled
       this.log(`Proactive 8.5 min refresh triggered to avoid 10 min Tuya stream timeout. Executing seamless refresh...`);
       try {
         await this.connectCameraInPage();
@@ -710,6 +711,7 @@ class CameraBridge {
   }
 
   cleanupSession() {
+    this.log(`[Worker Debug] Cleaning up active socket and timers...`);
     if (this.watchdogInterval) {
       clearInterval(this.watchdogInterval);
       this.watchdogInterval = null;

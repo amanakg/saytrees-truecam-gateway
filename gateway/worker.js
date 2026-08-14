@@ -82,13 +82,29 @@ function startHttpServers() {
     try {
       const url = new URL(req.url, `http://localhost`);
       const deviceId = url.searchParams.get('deviceId');
+      const isControl = url.searchParams.get('type') === 'control';
+      
       if (!deviceId) {
         socket.close();
         return;
       }
+      
       const bridge = activeBridges.find(b => b.deviceId === deviceId);
       if (bridge) {
-        bridge.handleWebSocketConnection(socket);
+        if (isControl) {
+          // This is a short-lived control connection from server.js
+          socket.on('message', (message) => {
+            try {
+              const cmd = JSON.parse(message.toString());
+              bridge.handleControlCommand(cmd);
+            } catch (e) {
+              console.error(`[Worker:${workerId}] Error parsing control command:`, e);
+            }
+          });
+        } else {
+          // This is the data stream from the headless browser
+          bridge.handleWebSocketConnection(socket);
+        }
       } else {
         console.warn(`[GlobalWS] Rejected connection for unknown device: ${deviceId}`);
         socket.close();
@@ -127,7 +143,7 @@ function getFfmpegPath() {
   return 'ffmpeg';
 }
 
-const ffmpegPath = getFfmpegPath();
+const ffmpegPath = "ffmpeg";
 console.log(`[Worker:${workerId}] Using FFmpeg binary: ${ffmpegPath}`);
 
 /**
@@ -253,7 +269,11 @@ class AccountPage {
       });
       page.on('dialog', async (dialog) => {
         console.log(`[Browser Dialog] ${dialog.message()}`);
-        await dialog.accept();
+        try {
+          await dialog.accept();
+        } catch (e) {
+          // Ignore "dialog already handled" error
+        }
       });
 
       // Block unnecessary resources to save RAM
@@ -624,6 +644,37 @@ class CameraBridge {
     });
   }
 
+  async handleControlCommand(cmd) {
+    if (!this.page) {
+      this.error('Control command rejected: Headless page is not active');
+      return;
+    }
+    
+    this.log(`Received control command: ${JSON.stringify(cmd)}`);
+    try {
+      if (cmd.action === 'R.PTZ.Control') {
+        // Execute the Tuya SDK action in the browser context
+        await this.page.evaluate((payload) => {
+          if (typeof window.ConnectApi !== 'undefined' && typeof window.MqttAction !== 'undefined') {
+            const api_conn = window.ConnectApi.__last_api_conn;
+            if (api_conn) {
+              window.MqttAction.executeDeviceAction(
+                api_conn.deviceid, 
+                api_conn.deviceSecret, // Actually we might not need deviceSecret if it's cached, but let's pass it
+                "R.PTZ.Control", 
+                payload, 
+                (res) => console.log('[Browser] PTZ Command response:', res)
+              );
+            }
+          }
+        }, cmd.payload);
+        this.log('Injected PTZ command into browser context successfully.');
+      }
+    } catch (e) {
+      this.error(`Failed to handle control command: ${e.message}`);
+    }
+  }
+
   scheduleProactiveRefresh() {
     // If the 8.5-minute timer is already running, do NOT reset it.
     // This prevents periodic Tuya metadata frames from constantly pushing the timer back.
@@ -654,6 +705,10 @@ class CameraBridge {
 
     this.log(`Launching FFmpeg with format: ${inputFormat} -> RTSP: ${this.streamUrl}`);
 
+    const codecArgs = isH265 ? 
+      ['-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency'] : 
+      ['-c:v', 'copy'];
+
     const ffmpegArgs = [
       '-y',
       '-fflags', '+genpts+discardcorrupt+nobuffer',
@@ -664,7 +719,7 @@ class CameraBridge {
       '-probesize', '1000000',
       '-f', inputFormat,
       '-i', 'pipe:0',
-      '-c:v', 'copy',
+      ...codecArgs,
       '-max_muxing_queue_size', '1024',
       '-f', 'rtsp',
       '-rtsp_transport', 'tcp',
@@ -976,6 +1031,7 @@ class CameraBridge {
                       window[hookKey] = true;
                       const originalLogin = ConnectApi.onloginresult;
                       ConnectApi.onloginresult = function (api_conn, result) {
+                        window.ConnectApi.__last_api_conn = api_conn;
                         if (originalLogin) originalLogin.apply(this, arguments);
                         if (result === 0) {
                           console.log(`[Worker] SDK login succeeded for ${api_conn.deviceid || api_conn.ip}, manually opening stream...`);

@@ -7,17 +7,13 @@ const db = require('../registry/db');
 const { spawn } = require('child_process');
 
 const appMain = express();
-const appTesting = express();
 const portMain = 3000;
-const portTesting = 9001;
 
 // Middlewares
 appMain.use(express.json());
-appTesting.use(express.json());
 
 // Serve static dashboards
 appMain.use(express.static(path.join(__dirname, '..', '..', 'dashboard_main')));
-appTesting.use(express.static(path.join(__dirname, '..', '..', 'dashboard_testing')));
 
 const corsMiddleware = (req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
@@ -30,7 +26,6 @@ const corsMiddleware = (req, res, next) => {
 };
 
 appMain.use(corsMiddleware);
-appTesting.use(corsMiddleware);
 
 // Middleware to authenticate tenant client API key
 function authenticateClient(req, res, next) {
@@ -84,69 +79,39 @@ const getCamerasHandler = (req, res) => {
 };
 
 appMain.get('/api/clients/:clientId/cameras', authenticateClient, getCamerasHandler);
-appTesting.get('/api/clients/:clientId/cameras', authenticateClient, getCamerasHandler);
 
-// Mock Camera Management
-let mockProcesses = [];
+const WebSocket = require('ws');
 
-appTesting.post('/api/test/mock_cameras', (req, res) => {
-  const { count } = req.body;
-  if (typeof count !== 'number' || count < 0) {
-    return res.status(400).json({ error: 'Invalid count' });
+const actionHandler = (req, res) => {
+  const deviceId = req.params.deviceId;
+  const actionPayload = req.body;
+
+  try {
+    const ws = new WebSocket(`ws://127.0.0.1:8080/?deviceId=${deviceId}&type=control`);
+    ws.on('open', () => {
+      ws.send(JSON.stringify(actionPayload));
+      ws.close();
+      res.json({ message: 'Action dispatched successfully' });
+    });
+    ws.on('error', (e) => {
+      console.error('[API] Control WS Error:', e.message);
+      res.status(500).json({ error: 'Failed to contact worker for control' });
+    });
+  } catch (err) {
+    console.error('[API] Error handling action:', err.message);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
+};
 
-  console.log(`[Testing API] Stopping ${mockProcesses.length} existing mock cameras...`);
-  mockProcesses.forEach(p => {
-    try { p.kill('SIGKILL'); } catch(e) {}
-  });
-  mockProcesses = [];
-  try { require('child_process').execSync('pkill -f "mock_cam_" || true'); } catch(e) {}
-
-  console.log(`[Testing API] Starting ${count} new mock cameras...`);
-  for (let i = 1; i <= count; i++) {
-    const streamName = `mock_cam_${i}`;
-    // FFMPEG command to copy from devcamera1_hd to mock_cam_X
-    const ffmpegArgs = [
-      '-fflags', 'nobuffer',
-      '-flags', 'low_delay',
-      '-rtsp_transport', 'tcp',
-      '-i', 'rtsp://127.0.0.1:8554/live/devcamera1_hd',
-      '-c:v', 'copy',
-      '-f', 'rtsp',
-      '-rtsp_transport', 'tcp',
-      `rtsp://127.0.0.1:8554/live/${streamName}`
-    ];
-    
-    const p = spawn('ffmpeg', ffmpegArgs);
-    p.on('error', (err) => console.error(`[Mock ${i}] FFmpeg error: ${err.message}`));
-    mockProcesses.push(p);
-  }
-
-  res.json({ message: `Started ${count} mock cameras`, count });
-});
-
-appTesting.post('/api/test/stop_mock_cameras', (req, res) => {
-  console.log(`[Testing API] Stopping ${mockProcesses.length} mock cameras via Stop button...`);
-  mockProcesses.forEach(p => {
-    try { p.kill('SIGKILL'); } catch(e) {}
-  });
-  mockProcesses = [];
-  try { require('child_process').execSync('pkill -f "mock_cam_" || true'); } catch(e) {}
-  res.json({ message: 'Stopped all mock cameras' });
-});
+appMain.post('/api/clients/:clientId/cameras/:deviceId/action', authenticateClient, actionHandler);
 
 const serverMain = appMain.listen(portMain, () => {
   console.log(`[API Main] Server listening on port ${portMain}`);
-});
-const serverTesting = appTesting.listen(portTesting, () => {
-  console.log(`[API Testing] Server listening on port ${portTesting}`);
 });
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
   serverMain.close();
-  serverTesting.close();
-  mockProcesses.forEach(p => { try { p.kill('SIGKILL'); } catch(e) {} });
   db.close();
   console.log('[API] Servers closed.');
 });

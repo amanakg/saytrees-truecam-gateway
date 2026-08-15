@@ -1120,7 +1120,21 @@ class CameraBridge {
                     console.log(`[Browser] [Worker] Calling native connect() for ${devId}...`);
                     if (typeof window.connect === 'function') {
                         window.connect();
-                        // The SDK's onconnect automatically calls login, and our onloginresult hook will force open_stream.
+                        // For MQTT connections, the Tuya SDK does NOT automatically fire onconnect.
+                        // We MUST manually call login after a delay to proceed.
+                        setTimeout(() => {
+                            console.log(`[Browser] [Worker] Calling native onLoginDevice() for ${devId}...`);
+                            if (typeof window.onLoginDevice === 'function') {
+                                window.onLoginDevice();
+                                // We do NOT call openvideo() here!
+                                // It will be automatically called by our onloginresult proxy hook
+                                // once the login actually succeeds, eliminating race conditions.
+                            } else {
+                                console.log(`[Browser] [Worker Error] window.onLoginDevice is not defined!`);
+                            }
+                        }, 3000);
+                    } else {
+                        console.log(`[Browser] [Worker Error] window.connect is not defined!`);
                     }
                   }
                   resolve();

@@ -294,6 +294,80 @@ class AccountPage {
 
       // Install Canvas mocks before page load to prevent Jessibuca from crashing on getImageData
       await page.addInitScript(() => {
+        window.__wsConnections = window.__wsConnections || {};
+        window.__devIdCache = window.__devIdCache || {};
+        
+        // Setup ConnectApi placeholder so we can define properties on it
+        window.ConnectApi = window.ConnectApi || {};
+        
+        // Define interceptors for WASM callbacks
+        const wasmCallbacks = [
+          'onrecvframeex', 'onconnect', 'onloginresult', 'onp2perror', 
+          'ondisconnect', 'onopenstream', 'onclosestream', 'onstreamstate', 'onstreammsg'
+        ];
+        
+        // Pre-define properties on ConnectApi using getters and setters to intercept assignment
+        wasmCallbacks.forEach(name => {
+          let originalFn = null;
+          Object.defineProperty(window.ConnectApi, name, {
+            get: function() {
+              return function() {
+                // Intercept execution
+                if (name !== 'onrecvframeex') {
+                  console.log(`[Browser] [WASM Hook] ConnectApi.${name} fired`);
+                }
+                
+                if (name === 'onloginresult') {
+                  const api_conn = arguments[0];
+                  const result = arguments[1];
+                  if (result == 0) {
+                    api_conn.logined = true;
+                    // Force open streams immediately on success
+                    for (let i = 0; i < api_conn.streamlist.length; i++) {
+                      if (api_conn.streamlist[i].winindex >= 0) {
+                        window.ConnectApi.open_stream(api_conn, i, api_conn.streamlist[i].streamid);
+                        if (window.playerList && window.playerList[api_conn.streamlist[i].winindex]) {
+                          window.playerList[api_conn.streamlist[i].winindex].open();
+                        }
+                      }
+                    }
+                  }
+                }
+                
+                if (name === 'onrecvframeex') {
+                  const api_conn = arguments[0];
+                  const frametype = arguments[1];
+                  const data = arguments[2];
+                  const datalen = arguments[3];
+                  const width = arguments[5];
+                  const height = arguments[6];
+                  const enc = arguments[7];
+                  const fps = arguments[8];
+                  
+                  if (frametype === 1 || frametype === 2) {
+                    const ws = window.__wsConnections[api_conn.deviceid];
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                      if (!ws.isInitSent) {
+                        const initPayload = JSON.stringify({ type: 'init', enc: enc, width: width, height: height, fps: fps });
+                        ws.send(initPayload);
+                        ws.isInitSent = true;
+                      }
+                      ws.send(data);
+                    }
+                  }
+                }
+                
+                if (originalFn) {
+                  return originalFn.apply(this, arguments);
+                }
+              };
+            },
+            set: function(fn) {
+              originalFn = fn;
+            }
+          });
+        });
+
         CanvasRenderingContext2D.prototype.drawImage = function () { };
         CanvasRenderingContext2D.prototype.putImageData = function () { };
         CanvasRenderingContext2D.prototype.getImageData = function () { 
@@ -391,36 +465,8 @@ class AccountPage {
           }
         }
 
-        // Canvas rendering APIs are now mocked in evaluateOnNewDocument
-        // Install Global Multiplexed Interceptor
-        window.__wsConnections = window.__wsConnections || {};
-
-        const interceptorInterval = setInterval(() => {
-          if (window.ConnectApi && window.ConnectApi.onrecvframeex && !window.ConnectApi.onrecvframeex.toString().includes('__wsConnections')) {
-            const original = window.ConnectApi.onrecvframeex;
-            window.ConnectApi.onrecvframeex = function (api_conn, frametype, data, datalen, channel, width, height, enc, fps, timestamp) {
-              console.log(`[Browser] Frame received! deviceId=${api_conn.deviceid}, frametype=${frametype}, len=${datalen}, res=${width}x${height}, enc=${enc}`);
-              if (frametype === 1 || frametype === 2) {
-                // Look up the correct WebSocket based on api_conn.deviceid
-                const ws = window.__wsConnections[api_conn.deviceid];
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                  if (!ws.isInitSent) {
-                    const initPayload = JSON.stringify({ type: 'init', enc: enc, width: width, height: height, fps: fps });
-                    console.log(`[Browser] Sending init payload: ${initPayload}`);
-                    ws.send(initPayload);
-                    ws.isInitSent = true;
-                    console.log(`[Browser] Sent init for ${api_conn.deviceid}`);
-                  }
-                  ws.send(data);
-                } else {
-                  console.log(`[Browser] WS not ready for ${api_conn.deviceid}`);
-                }
-              }
-              original.apply(this, arguments);
-            };
-            console.log('[Browser] Global Multiplexed Interceptor installed (or re-installed).');
-          }
-        }, 100);
+        // Canvas rendering APIs are now mocked in addInitScript
+        // WASM hooks are also mocked in addInitScript
       }, { acc: this.accountEmail, pwd: this.accountPassword });
 
       // Auto-sync is deferred to after the 8s WASM wait (see below)
@@ -1044,43 +1090,8 @@ class CameraBridge {
                         };
                       }
                     }
-
-                    // Hook into onloginresult to explicitly OpenStream.
-                    // Use a global key so this only applies once per page, preventing duplicate hooks!
-                    const hookKey = `__loginHooked_global`;
-                    if (typeof ConnectApi !== 'undefined' && !window[hookKey]) {
-                      window[hookKey] = true;
-                      
-                      const hookNames = [
-                        'onconnect', 'onloginresult', 'onp2perror', 'ondisconnect', 
-                        'onopenstream', 'onclosestream', 'onstreamstate', 'onstreammsg'
-                      ];
-
-                      hookNames.forEach(name => {
-                        const original = ConnectApi[name];
-                        ConnectApi[name] = function () {
-                          console.log(`[Worker Debug] ConnectApi.${name} fired with arguments:`, JSON.stringify(Array.from(arguments).map(a => typeof a === 'object' && a !== null ? (a.deviceid || a.ip || 'obj') : a)));
-                          if (name === 'onloginresult') {
-                            const api_conn = arguments[0];
-                            const result = arguments[1];
-                            window.ConnectApi.__last_api_conn = api_conn;
-                            if (result === 0) {
-                              console.log(`[Worker Debug] SDK login succeeded, manually opening stream...`);
-                              if (typeof Player !== 'undefined' && Player.OpenStream) {
-                                let idx = window.__cameraWinIndexMap ? window.__cameraWinIndexMap[api_conn.deviceid] : 0;
-                                if (idx === undefined) idx = 0;
-                                Player.OpenStream(api_conn.deviceid, "", 0, 1, idx);
-                              }
-                            }
-                          }
-                          if (original) return original.apply(this, arguments);
-                        };
-                      });
-                    }
-
-                    // Debug: Ensure the Tuya SDK is tracking the session cleanly
-                    // Simply mimic a human using the Tuya index.html UI
-                    // Set the DOM values
+                    // WASM hooks are now established securely via addInitScript using property getters/setters.
+                    // Proceed with native connection to the Tuya SDK and trigger playback.
                     document.getElementById("dev_id").value = formattedDevId;
                     document.getElementById("user").value = "admin";
                     document.getElementById("pwd").value = devSecret;

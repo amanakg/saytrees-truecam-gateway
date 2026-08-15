@@ -1121,9 +1121,6 @@ class CameraBridge {
                     if (typeof window.connect === 'function') {
                         window.connect();
                         // The SDK's onconnect automatically calls login, and our onloginresult hook will force open_stream.
-                    } else {
-                        console.log(`[Browser] [Worker Error] window.connect is not defined!`);
-                    }
                     }
                   }
                   resolve();

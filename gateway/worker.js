@@ -573,7 +573,7 @@ class CameraBridge {
     this.watchdogInterval = setInterval(() => {
       const idleTime = Date.now() - this.lastFrameTime;
       // Two-tier watchdog: 20s grace period for first frame, 15s during active stream
-      const threshold = this.ffmpegProcess ? 15000 : 20000;
+      const threshold = this.ffmpegProcess ? 15000 : 60000;
       if (idleTime > threshold) {
         this.warn(`Stream idle for ${idleTime / 1000}s. Triggering reconnect...`);
         clearInterval(this.watchdogInterval);

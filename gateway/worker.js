@@ -1062,59 +1062,39 @@ class CameraBridge {
                     }
 
                     // Debug: Ensure the Tuya SDK is tracking the session cleanly
-                    try {
-                      if (typeof GetSessionById !== 'undefined') {
-                        const existingSession = GetSessionById(formattedDevId) || GetSessionById(devId);
-                        console.log(`[Browser] [Worker Debug] Session before ConnectDevice: ${existingSession ? 'EXISTS' : 'NULL'}`);
-                      }
-                    } catch (e) { }
+                    // Simply mimic a human using the Tuya index.html UI
+                    // Set the DOM values
+                    document.getElementById("dev_id").value = formattedDevId;
+                    document.getElementById("user").value = "admin";
+                    document.getElementById("pwd").value = devSecret;
+                    document.getElementById("streamtype").value = "1";
+                    document.getElementById("channel").value = "0";
 
-                    // Create a custom onResolv to avoid Tuya's default index.js which reads from the dev_id dropdown (causing cross-talk)
-                    window[`__customOnResolv_${devId}`] = function (dId, mqtt_ipv4, mqtt_ipv6, mqtt_port, mqtts_port, ws_port, wss_port, mqttDomain) {
-                      console.log(`[Browser] Device ID: ${dId}, mqtt address: ${mqtt_ipv4}, ${mqtt_ipv6}, ${mqtt_port}, ${mqtts_port}, ${ws_port}, ${wss_port}, ${mqttDomain}`);
-                      let protocol = (mqtts_port > 0) ? "mqtts" : "mqtt";
-                      let port = (mqtts_port > 0) ? mqtts_port : mqtt_port;
-                      let url = dId;
-                      if (!dId.includes(".")) {
-                        protocol = (wss_port > 0) ? "wss" : "ws";
-                        port = (wss_port > 0) ? wss_port : ws_port;
-                        url = mqtt_ipv4.replace(/\./g, "-") + "." + mqttDomain;
-                      }
-                      console.log(`[Browser] Connecting MQTT directly for ${devId} with protocol ${protocol} on port ${port}...`);
-                      if (typeof MqttClient !== 'undefined' && MqttClient.connectClient) {
-                        MqttClient.connectClient(devId, devSecret, url, port);
-                        console.log(`[Browser] [Worker] MqttClient.connectClient fired for ${devId}. Waiting 3s to inject manual login...`);
+                    console.log(`[Browser] [Worker] Calling native connect() for ${devId}...`);
+                    if (typeof window.connect === 'function') {
+                        window.connect();
+                        
+                        // Give WASM/MQTT time to connect, then call login
                         setTimeout(() => {
-                           try {
-                             if (typeof GetSessionById !== 'undefined' && typeof ConnectApi !== 'undefined') {
-                               let s = GetSessionById(devId);
-                               if (s) {
-                                 console.log(`[Browser] [Worker] Forcing ConnectApi.login for ${devId}`);
-                                 ConnectApi.login(s, "admin", devSecret, true);
-                                 setTimeout(() => {
-                                    console.log(`[Browser] [Worker] Forcing Player.OpenStream for ${devId}`);
-                                    let idx = window.__cameraWinIndexMap ? window.__cameraWinIndexMap[devId] : 0;
-                                    if (idx === undefined) idx = 0;
-                                    if (typeof Player !== 'undefined' && Player.OpenStream) {
-                                        Player.OpenStream(devId, "", 0, 1, idx);
+                            console.log(`[Browser] [Worker] Calling native onLoginDevice() for ${devId}...`);
+                            if (typeof window.onLoginDevice === 'function') {
+                                window.onLoginDevice();
+                                
+                                // Give login time to resolve, then open stream
+                                setTimeout(() => {
+                                    console.log(`[Browser] [Worker] Calling native openvideo() for ${devId}...`);
+                                    if (typeof window.openvideo === 'function') {
+                                        window.openvideo();
+                                    } else {
+                                        console.log(`[Browser] [Worker Error] window.openvideo is not defined!`);
                                     }
-                                 }, 3000);
-                               } else {
-                                 console.log(`[Browser] [Worker] Could not find session for ${devId}`);
-                               }
-                             }
-                           } catch (e) {
-                             console.log(`[Browser] [Worker] Error forcing login: ${e.message}`);
-                           }
+                                }, 3000);
+                            } else {
+                                console.log(`[Browser] [Worker Error] window.onLoginDevice is not defined!`);
+                            }
                         }, 3000);
-                      }
-                    };
-
-                    // Actually call the Tuya connection logic
-                    try {
-                      Player.ConnectDevice(formattedDevId, "", "admin", devSecret, winIndex, 80, 0, 0, 1, "wss", window[`__customOnResolv_${devId}`]);
-                    } catch (e) {
-                      console.log(`[Browser] ERROR in ConnectDevice: ${e.message}`);
+                    } else {
+                        console.log(`[Browser] [Worker Error] window.connect is not defined!`);
                     }
                   }
                   resolve();

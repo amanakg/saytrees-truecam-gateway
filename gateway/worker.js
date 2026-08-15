@@ -1128,7 +1128,7 @@ class CameraBridge {
                         // Change winindex to 0 instead of -1 so Tuya SDK's onloginresult automatically opens the stream
                         window.connect = function() {
                             console.log(`[Browser] [Worker] Calling native connect() for ${devId}...`);
-                            window.Player.ConnectDevice(
+                            Player.ConnectDevice(
                                 formattedDevId, // devid
                                 "", // ip
                                 "admin", // user

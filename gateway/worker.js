@@ -1125,10 +1125,27 @@ class CameraBridge {
                         setTimeout(() => {
                             console.log(`[Browser] [Worker] Calling native onLoginDevice() for ${devId}...`);
                             if (typeof window.onLoginDevice === 'function') {
+                                let id = document.getElementById("dev_id").value;
+                                let tmp = id.split(":");
+                                let sess = window.GetSessionById ? window.GetSessionById(tmp[1]) : null;
+                                console.log(`[Browser] [Worker Debug] Session for login ${tmp[1]}:`, sess ? `FOUND` : 'NULL');
+                                
                                 window.onLoginDevice();
-                                // We do NOT call openvideo() here!
-                                // It will be automatically called by our onloginresult proxy hook
-                                // once the login actually succeeds, eliminating race conditions.
+                                
+                                // Force logined=true to guarantee openvideo works
+                                if (sess) {
+                                    sess.logined = true;
+                                    console.log(`[Browser] [Worker Debug] Forced sess.logined = true`);
+                                }
+                                
+                                setTimeout(() => {
+                                    console.log(`[Browser] [Worker] Calling native openvideo() for ${devId}...`);
+                                    if (typeof window.openvideo === 'function') {
+                                        window.openvideo();
+                                    } else {
+                                        console.log(`[Browser] [Worker Error] window.openvideo is not defined!`);
+                                    }
+                                }, 3000);
                             } else {
                                 console.log(`[Browser] [Worker Error] window.onLoginDevice is not defined!`);
                             }

@@ -201,6 +201,10 @@ class AccountPage {
         await dialog.accept();
       });
 
+      page.on('requestfailed', request => {
+        console.error(`[Browser Network Error] URL: ${request.url()} | Error: ${request.failure()?.errorText || 'Unknown'}`);
+      });
+
       page.on('console', async (msg) => {
         const text = msg.text();
         console.log(`[Browser] ${text}`);

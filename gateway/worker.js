@@ -42,11 +42,15 @@ function serveFile(filePath, res, isSdk = false) {
     if (ext === '.js') contentType = 'application/javascript';
     else if (ext === '.css') contentType = 'text/css';
     else if (ext === '.wasm') contentType = 'application/wasm';
+    else if (ext === '.png') contentType = 'image/png';
+    else if (ext === '.jpg' || ext === '.jpeg') contentType = 'image/jpeg';
+    else if (ext === '.svg') contentType = 'image/svg+xml';
 
     const headers = { 'Content-Type': contentType };
     if (isSdk) {
       headers['Cross-Origin-Opener-Policy'] = 'same-origin';
       headers['Cross-Origin-Embedder-Policy'] = 'require-corp';
+      headers['Cross-Origin-Resource-Policy'] = 'cross-origin'; // Allow subresources to load under COEP
     }
 
     res.writeHead(200, headers);

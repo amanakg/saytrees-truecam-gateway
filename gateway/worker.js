@@ -1141,10 +1141,13 @@ class CameraBridge {
                                 "", // wss (must be string)
                                 function(res) { 
                                     console.log(`[Browser] connect res:`, res); 
-                                    console.log(`[Browser] Connection resolved, automatically calling openvideo()!`);
-                                    if (typeof window.openvideo === 'function') {
-                                        window.openvideo();
-                                    }
+                                    console.log(`[Browser] Connection initiated. Waiting 3 seconds for P2P proxy to authenticate...`);
+                                    setTimeout(() => {
+                                        if (typeof window.openvideo === 'function') {
+                                            console.log(`[Browser] Time's up! Automatically calling openvideo() now!`);
+                                            window.openvideo();
+                                        }
+                                    }, 3000);
                                 } // cb
                             );
                         };

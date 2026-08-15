@@ -1095,6 +1095,39 @@ class CameraBridge {
                     document.getElementById("dev_id").value = formattedDevId;
                     document.getElementById("user").value = "admin";
                     document.getElementById("pwd").value = devSecret;
+                    
+                    // Override onLoginDevice to see if session is null
+                    if (typeof window.onLoginDevice === 'function' && !window.__onLoginHooked) {
+                      const origOnLogin = window.onLoginDevice;
+                      window.onLoginDevice = function() {
+                        const id = document.getElementById("dev_id").value;
+                        const tmp = id.split(":");
+                        console.log(`[Worker Debug] onLoginDevice called with dev_id=${id}, tmp=${JSON.stringify(tmp)}`);
+                        if (tmp.length === 3) {
+                          const session = window.GetSessionById ? window.GetSessionById(tmp[1]) : null;
+                          console.log(`[Worker Debug] Session for ${tmp[1]}:`, session !== null ? "FOUND" : "NULL");
+                        }
+                        origOnLogin.apply(this, arguments);
+                      };
+                      window.__onLoginHooked = true;
+                    }
+
+                    // Override openvideo to see if session.logined is true
+                    if (typeof window.openvideo === 'function' && !window.__openVideoHooked) {
+                      const origOpenVideo = window.openvideo;
+                      window.openvideo = function() {
+                        const id = document.getElementById("dev_id").value;
+                        const tmp = id.split(":");
+                        console.log(`[Worker Debug] openvideo called with dev_id=${id}, tmp=${JSON.stringify(tmp)}`);
+                        if (tmp.length === 3) {
+                          const session = window.GetSessionById ? window.GetSessionById(tmp[1]) : null;
+                          console.log(`[Worker Debug] Session for openvideo ${tmp[1]}:`, session !== null ? `FOUND (logined=${session.logined})` : "NULL");
+                        }
+                        origOpenVideo.apply(this, arguments);
+                      };
+                      window.__openVideoHooked = true;
+                    }
+
                     document.getElementById("streamtype").value = "1";
                     document.getElementById("channel").value = "0";
 

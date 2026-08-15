@@ -1083,6 +1083,22 @@ class CameraBridge {
                       console.log(`[Browser] Connecting MQTT directly for ${devId} with protocol ${protocol} on port ${port}...`);
                       if (typeof MqttClient !== 'undefined' && MqttClient.connectClient) {
                         MqttClient.connectClient(devId, devSecret, url, port);
+                        console.log(`[Browser] [Worker] MqttClient.connectClient fired for ${devId}. Waiting 2s to inject onconnect...`);
+                        setTimeout(() => {
+                           try {
+                             if (typeof GetSessionById !== 'undefined' && typeof ConnectApi !== 'undefined') {
+                               let s = GetSessionById(devId);
+                               if (s && ConnectApi.onconnect) {
+                                 console.log(`[Browser] [Worker] Forcing ConnectApi.onconnect for ${devId}`);
+                                 ConnectApi.onconnect(s, 0);
+                               } else {
+                                 console.log(`[Browser] [Worker] Could not find session or onconnect for ${devId}`);
+                               }
+                             }
+                           } catch (e) {
+                             console.log(`[Browser] [Worker] Error forcing onconnect: ${e.message}`);
+                           }
+                        }, 2000);
                       }
                     };
 

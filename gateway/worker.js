@@ -293,7 +293,7 @@ class AccountPage {
       });
 
       // Install Canvas mocks before page load to prevent Jessibuca from crashing on getImageData
-      await page.evaluateOnNewDocument(() => {
+      await page.addInitScript(() => {
         CanvasRenderingContext2D.prototype.drawImage = function () { };
         CanvasRenderingContext2D.prototype.putImageData = function () { };
         CanvasRenderingContext2D.prototype.getImageData = function () { 

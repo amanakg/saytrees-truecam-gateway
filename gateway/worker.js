@@ -1126,14 +1126,6 @@ class CameraBridge {
                     console.log(`[Browser] [Worker] Calling native connect() for ${devId}...`);
                     if (typeof window.connect === 'function') {
                         // Change winindex to 0 instead of -1 so Tuya SDK's onloginresult automatically opens the stream
-                        // Auto-start stream when Tuya connects successfully
-                        window.onConnectSuccess = function(i, msg) {
-                            console.log(`[Browser] [Worker Debug] onConnectSuccess fired! Calling openvideo()`);
-                            if (typeof window.openvideo === 'function') {
-                                window.openvideo();
-                            }
-                        };
-                        
                         window.connect = function() {
                             console.log(`[Browser] [Worker] Calling native connect() for ${devId}...`);
                             Player.ConnectDevice(
@@ -1147,7 +1139,13 @@ class CameraBridge {
                                 0, // channel
                                 0, // streamid
                                 "", // wss (must be string)
-                                function(res) { console.log(`[Browser] connect res:`, res); } // cb
+                                function(res) { 
+                                    console.log(`[Browser] connect res:`, res); 
+                                    console.log(`[Browser] Connection resolved, automatically calling openvideo()!`);
+                                    if (typeof window.openvideo === 'function') {
+                                        window.openvideo();
+                                    }
+                                } // cb
                             );
                         };
                         window.connect();

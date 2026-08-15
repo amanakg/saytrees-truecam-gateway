@@ -1030,34 +1030,31 @@ class CameraBridge {
                     if (typeof ConnectApi !== 'undefined' && !window[hookKey]) {
                       window[hookKey] = true;
                       
-                      const originalLogin = ConnectApi.onloginresult;
-                      ConnectApi.onloginresult = function (api_conn, result) {
-                        console.log(`[Worker Debug] ConnectApi.onloginresult fired for ${api_conn.deviceid} with result = ${result}`);
-                        window.ConnectApi.__last_api_conn = api_conn;
-                        if (originalLogin) originalLogin.apply(this, arguments);
-                        if (result === 0) {
-                          console.log(`[Worker Debug] SDK login succeeded, manually opening stream...`);
-                          if (typeof Player !== 'undefined' && Player.OpenStream) {
-                            let idx = window.__cameraWinIndexMap ? window.__cameraWinIndexMap[api_conn.deviceid] : 0;
-                            if (idx === undefined) idx = 0;
-                            Player.OpenStream(api_conn.deviceid, "", 0, 1, idx);
+                      const hookNames = [
+                        'onconnect', 'onloginresult', 'onp2perror', 'ondisconnect', 
+                        'onopenstream', 'onclosestream', 'onstreamstate', 'onstreammsg'
+                      ];
+
+                      hookNames.forEach(name => {
+                        const original = ConnectApi[name];
+                        ConnectApi[name] = function () {
+                          console.log(`[Worker Debug] ConnectApi.${name} fired with arguments:`, JSON.stringify(Array.from(arguments).map(a => typeof a === 'object' && a !== null ? (a.deviceid || a.ip || 'obj') : a)));
+                          if (name === 'onloginresult') {
+                            const api_conn = arguments[0];
+                            const result = arguments[1];
+                            window.ConnectApi.__last_api_conn = api_conn;
+                            if (result === 0) {
+                              console.log(`[Worker Debug] SDK login succeeded, manually opening stream...`);
+                              if (typeof Player !== 'undefined' && Player.OpenStream) {
+                                let idx = window.__cameraWinIndexMap ? window.__cameraWinIndexMap[api_conn.deviceid] : 0;
+                                if (idx === undefined) idx = 0;
+                                Player.OpenStream(api_conn.deviceid, "", 0, 1, idx);
+                              }
+                            }
                           }
-                        } else {
-                          console.log(`[Worker Debug] ERROR: SDK login failed with result = ${result}`);
-                        }
-                      };
-
-                      const originalStreamState = ConnectApi.onstreamstate;
-                      ConnectApi.onstreamstate = function(api_conn, state) {
-                         console.log(`[Worker Debug] ConnectApi.onstreamstate fired for ${api_conn.deviceid} with state = ${state}`);
-                         if (originalStreamState) originalStreamState.apply(this, arguments);
-                      };
-
-                      const originalStreamMsg = ConnectApi.onstreammsg;
-                      ConnectApi.onstreammsg = function(api_conn, msg) {
-                         console.log(`[Worker Debug] ConnectApi.onstreammsg fired for ${api_conn.deviceid}: ${JSON.stringify(msg)}`);
-                         if (originalStreamMsg) originalStreamMsg.apply(this, arguments);
-                      };
+                          if (original) return original.apply(this, arguments);
+                        };
+                      });
                     }
 
                     // Debug: Ensure the Tuya SDK is tracking the session cleanly

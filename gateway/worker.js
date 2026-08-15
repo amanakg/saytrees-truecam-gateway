@@ -1083,22 +1083,30 @@ class CameraBridge {
                       console.log(`[Browser] Connecting MQTT directly for ${devId} with protocol ${protocol} on port ${port}...`);
                       if (typeof MqttClient !== 'undefined' && MqttClient.connectClient) {
                         MqttClient.connectClient(devId, devSecret, url, port);
-                        console.log(`[Browser] [Worker] MqttClient.connectClient fired for ${devId}. Waiting 2s to inject onconnect...`);
+                        console.log(`[Browser] [Worker] MqttClient.connectClient fired for ${devId}. Waiting 3s to inject manual login...`);
                         setTimeout(() => {
                            try {
                              if (typeof GetSessionById !== 'undefined' && typeof ConnectApi !== 'undefined') {
                                let s = GetSessionById(devId);
-                               if (s && ConnectApi.onconnect) {
-                                 console.log(`[Browser] [Worker] Forcing ConnectApi.onconnect for ${devId}`);
-                                 ConnectApi.onconnect(s, 0);
+                               if (s) {
+                                 console.log(`[Browser] [Worker] Forcing ConnectApi.login for ${devId}`);
+                                 ConnectApi.login(s, "admin", devSecret, true);
+                                 setTimeout(() => {
+                                    console.log(`[Browser] [Worker] Forcing Player.OpenStream for ${devId}`);
+                                    let idx = window.__cameraWinIndexMap ? window.__cameraWinIndexMap[devId] : 0;
+                                    if (idx === undefined) idx = 0;
+                                    if (typeof Player !== 'undefined' && Player.OpenStream) {
+                                        Player.OpenStream(devId, "", 0, 1, idx);
+                                    }
+                                 }, 3000);
                                } else {
-                                 console.log(`[Browser] [Worker] Could not find session or onconnect for ${devId}`);
+                                 console.log(`[Browser] [Worker] Could not find session for ${devId}`);
                                }
                              }
                            } catch (e) {
-                             console.log(`[Browser] [Worker] Error forcing onconnect: ${e.message}`);
+                             console.log(`[Browser] [Worker] Error forcing login: ${e.message}`);
                            }
-                        }, 2000);
+                        }, 3000);
                       }
                     };
 

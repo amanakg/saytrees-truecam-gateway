@@ -297,75 +297,91 @@ class AccountPage {
         window.__wsConnections = window.__wsConnections || {};
         window.__devIdCache = window.__devIdCache || {};
         
-        // Setup ConnectApi placeholder so we can define properties on it
-        window.ConnectApi = window.ConnectApi || {};
-        
-        // Define interceptors for WASM callbacks
         const wasmCallbacks = [
           'onrecvframeex', 'onconnect', 'onloginresult', 'onp2perror', 
           'ondisconnect', 'onopenstream', 'onclosestream', 'onstreamstate', 'onstreammsg'
         ];
+
+        // We must intercept the ConnectApi object itself in case Webpack overwrites it
+        let _ConnectApi = {};
         
-        // Pre-define properties on ConnectApi using getters and setters to intercept assignment
-        wasmCallbacks.forEach(name => {
-          let originalFn = null;
-          Object.defineProperty(window.ConnectApi, name, {
-            get: function() {
-              return function() {
-                // Intercept execution
-                if (name !== 'onrecvframeex') {
-                  console.log(`[Browser] [WASM Hook] ConnectApi.${name} fired`);
-                }
-                
-                if (name === 'onloginresult') {
-                  const api_conn = arguments[0];
-                  const result = arguments[1];
-                  if (result == 0) {
-                    api_conn.logined = true;
-                    // Force open streams immediately on success
-                    for (let i = 0; i < api_conn.streamlist.length; i++) {
-                      if (api_conn.streamlist[i].winindex >= 0) {
-                        window.ConnectApi.open_stream(api_conn, i, api_conn.streamlist[i].streamid);
-                        if (window.playerList && window.playerList[api_conn.streamlist[i].winindex]) {
-                          window.playerList[api_conn.streamlist[i].winindex].open();
+        function installHooks(apiObj) {
+          wasmCallbacks.forEach(name => {
+            let originalFn = apiObj[name];
+            Object.defineProperty(apiObj, name, {
+              get: function() {
+                return function() {
+                  if (name !== 'onrecvframeex') {
+                    console.log(`[Browser] [WASM Hook] ConnectApi.${name} fired`);
+                  }
+                  
+                  if (name === 'onloginresult') {
+                    const api_conn = arguments[0];
+                    const result = arguments[1];
+                    if (result === 0) {
+                      api_conn.logined = true;
+                      console.log(`[Browser] SDK Login Succeeded! Forcing stream open...`);
+                      for (let i = 0; i < api_conn.streamlist.length; i++) {
+                        // Force winindex to 0 so we can play the video, bypassing the -1 check
+                        api_conn.streamlist[i].winindex = 0;
+                        if (window.ConnectApi && window.ConnectApi.open_stream) {
+                          window.ConnectApi.open_stream(api_conn, i, api_conn.streamlist[i].streamid);
+                          console.log(`[Browser] Called ConnectApi.open_stream for channel ${i}`);
+                        }
+                        if (window.playerList && window.playerList[0]) {
+                          window.playerList[0].open();
                         }
                       }
                     }
                   }
-                }
-                
-                if (name === 'onrecvframeex') {
-                  const api_conn = arguments[0];
-                  const frametype = arguments[1];
-                  const data = arguments[2];
-                  const datalen = arguments[3];
-                  const width = arguments[5];
-                  const height = arguments[6];
-                  const enc = arguments[7];
-                  const fps = arguments[8];
                   
-                  if (frametype === 1 || frametype === 2) {
-                    const ws = window.__wsConnections[api_conn.deviceid];
-                    if (ws && ws.readyState === WebSocket.OPEN) {
-                      if (!ws.isInitSent) {
-                        const initPayload = JSON.stringify({ type: 'init', enc: enc, width: width, height: height, fps: fps });
-                        ws.send(initPayload);
-                        ws.isInitSent = true;
+                  if (name === 'onrecvframeex') {
+                    const api_conn = arguments[0];
+                    const frametype = arguments[1];
+                    const data = arguments[2];
+                    const width = arguments[5];
+                    const height = arguments[6];
+                    const enc = arguments[7];
+                    const fps = arguments[8];
+                    
+                    if (frametype === 1 || frametype === 2) {
+                      const ws = window.__wsConnections[api_conn.deviceid];
+                      if (ws && ws.readyState === WebSocket.OPEN) {
+                        if (!ws.isInitSent) {
+                          const initPayload = JSON.stringify({ type: 'init', enc: enc, width: width, height: height, fps: fps });
+                          ws.send(initPayload);
+                          ws.isInitSent = true;
+                        }
+                        ws.send(data);
                       }
-                      ws.send(data);
                     }
                   }
-                }
-                
-                if (originalFn) {
-                  return originalFn.apply(this, arguments);
-                }
-              };
-            },
-            set: function(fn) {
-              originalFn = fn;
-            }
+                  
+                  if (originalFn) {
+                    return originalFn.apply(this, arguments);
+                  }
+                };
+              },
+              set: function(fn) {
+                originalFn = fn;
+              }
+            });
           });
+        }
+        
+        // Install hooks on the initial object
+        installHooks(_ConnectApi);
+
+        // Intercept window.ConnectApi assignment
+        Object.defineProperty(window, 'ConnectApi', {
+          get: function() {
+            return _ConnectApi;
+          },
+          set: function(newObj) {
+            console.log("[Browser] Intercepted window.ConnectApi assignment");
+            _ConnectApi = newObj || {};
+            installHooks(_ConnectApi);
+          }
         });
 
         CanvasRenderingContext2D.prototype.drawImage = function () { };
@@ -1096,37 +1112,7 @@ class CameraBridge {
                     document.getElementById("user").value = "admin";
                     document.getElementById("pwd").value = devSecret;
                     
-                    // Override onLoginDevice to see if session is null
-                    if (typeof window.onLoginDevice === 'function' && !window.__onLoginHooked) {
-                      const origOnLogin = window.onLoginDevice;
-                      window.onLoginDevice = function() {
-                        const id = document.getElementById("dev_id").value;
-                        const tmp = id.split(":");
-                        console.log(`[Worker Debug] onLoginDevice called with dev_id=${id}, tmp=${JSON.stringify(tmp)}`);
-                        if (tmp.length === 3) {
-                          const session = window.GetSessionById ? window.GetSessionById(tmp[1]) : null;
-                          console.log(`[Worker Debug] Session for ${tmp[1]}:`, session !== null ? "FOUND" : "NULL");
-                        }
-                        origOnLogin.apply(this, arguments);
-                      };
-                      window.__onLoginHooked = true;
-                    }
 
-                    // Override openvideo to see if session.logined is true
-                    if (typeof window.openvideo === 'function' && !window.__openVideoHooked) {
-                      const origOpenVideo = window.openvideo;
-                      window.openvideo = function() {
-                        const id = document.getElementById("dev_id").value;
-                        const tmp = id.split(":");
-                        console.log(`[Worker Debug] openvideo called with dev_id=${id}, tmp=${JSON.stringify(tmp)}`);
-                        if (tmp.length === 3) {
-                          const session = window.GetSessionById ? window.GetSessionById(tmp[1]) : null;
-                          console.log(`[Worker Debug] Session for openvideo ${tmp[1]}:`, session !== null ? `FOUND (logined=${session.logined})` : "NULL");
-                        }
-                        origOpenVideo.apply(this, arguments);
-                      };
-                      window.__openVideoHooked = true;
-                    }
 
                     document.getElementById("streamtype").value = "1";
                     document.getElementById("channel").value = "0";
@@ -1134,26 +1120,10 @@ class CameraBridge {
                     console.log(`[Browser] [Worker] Calling native connect() for ${devId}...`);
                     if (typeof window.connect === 'function') {
                         window.connect();
-                        
-                        // Give WASM/MQTT time to connect, then call login
-                        setTimeout(() => {
-                            console.log(`[Browser] [Worker] Calling native onLoginDevice() for ${devId}...`);
-                            if (typeof window.onLoginDevice === 'function') {
-                                window.onLoginDevice();
-                                
-                                // Give login time to resolve, then open stream
-                                setTimeout(() => {
-                                    console.log(`[Browser] [Worker] Calling native openvideo() for ${devId}...`);
-                                    if (typeof window.openvideo === 'function') {
-                                        window.openvideo();
-                                    } else {
-                                        console.log(`[Browser] [Worker Error] window.openvideo is not defined!`);
-                                    }
-                                }, 3000);
-                            } else {
-                                console.log(`[Browser] [Worker Error] window.onLoginDevice is not defined!`);
-                            }
-                        }, 3000);
+                        // The SDK's onconnect automatically calls login, and our onloginresult hook will force open_stream.
+                    } else {
+                        console.log(`[Browser] [Worker Error] window.connect is not defined!`);
+                    }
                     } else {
                         console.log(`[Browser] [Worker Error] window.connect is not defined!`);
                     }

@@ -1124,8 +1124,6 @@ class CameraBridge {
                     } else {
                         console.log(`[Browser] [Worker Error] window.connect is not defined!`);
                     }
-                    } else {
-                        console.log(`[Browser] [Worker Error] window.connect is not defined!`);
                     }
                   }
                   resolve();

@@ -273,15 +273,21 @@ class AccountPage {
         }
       });
       page.on('pageerror', (err) => {
-        console.error(`[Browser Error] ${err.toString()}`);
+        console.error(`[Worker Fatal] Page Error:`, err);
       });
-      page.on('dialog', async (dialog) => {
-        console.log(`[Browser Dialog] ${dialog.message()}`);
-        try {
-          await dialog.accept();
-        } catch (e) {
-          // Ignore "dialog already handled" error
-        }
+
+      // Debug network requests (especially WebSockets)
+      page.on('request', req => {
+          const url = req.url();
+          if (url.includes('ws') || url.includes('api')) {
+              console.log(`[Browser] [Network] Request: ${url}`);
+          }
+      });
+      
+      page.on('websocket', ws => {
+          console.log(`[Browser] [Network] WS Created: ${ws.url()}`);
+          ws.on('close', () => console.log(`[Browser] [Network] WS Closed: ${ws.url()}`));
+          ws.on('socketerror', err => console.log(`[Browser] [Network] WS Error: ${ws.url()}`, err));
       });
 
       // Inject CORP headers to all localhost responses to prevent ERR_FAILED under COEP
@@ -1119,37 +1125,24 @@ class CameraBridge {
 
                     console.log(`[Browser] [Worker] Calling native connect() for ${devId}...`);
                     if (typeof window.connect === 'function') {
+                        // Change winindex to 0 instead of -1 so Tuya SDK's onloginresult automatically opens the stream
+                        window.connect = function() {
+                            console.log(`[Browser] [Worker] Calling native connect() for ${devId}...`);
+                            window.Player.ConnectDevice(
+                                formattedDevId, // devid
+                                "", // ip
+                                "admin", // user
+                                devSecret, // pwd
+                                0, // winindex (MUST BE 0!)
+                                0, // port
+                                1, // connectType
+                                0, // channel
+                                0, // streamid
+                                true, // wss
+                                function(res) { console.log(`[Browser] connect res:`, res); } // cb
+                            );
+                        };
                         window.connect();
-                        // For MQTT connections, the Tuya SDK does NOT automatically fire onconnect.
-                        // We MUST manually call login after a delay to proceed.
-                        setTimeout(() => {
-                            console.log(`[Browser] [Worker] Calling native onLoginDevice() for ${devId}...`);
-                            if (typeof window.onLoginDevice === 'function') {
-                                let id = document.getElementById("dev_id").value;
-                                let tmp = id.split(":");
-                                let sess = window.GetSessionById ? window.GetSessionById(tmp[1]) : null;
-                                console.log(`[Browser] [Worker Debug] Session for login ${tmp[1]}:`, sess ? `FOUND` : 'NULL');
-                                
-                                window.onLoginDevice();
-                                
-                                // Force logined=true to guarantee openvideo works
-                                if (sess) {
-                                    sess.logined = true;
-                                    console.log(`[Browser] [Worker Debug] Forced sess.logined = true`);
-                                }
-                                
-                                setTimeout(() => {
-                                    console.log(`[Browser] [Worker] Calling native openvideo() for ${devId}...`);
-                                    if (typeof window.openvideo === 'function') {
-                                        window.openvideo();
-                                    } else {
-                                        console.log(`[Browser] [Worker Error] window.openvideo is not defined!`);
-                                    }
-                                }, 3000);
-                            } else {
-                                console.log(`[Browser] [Worker Error] window.onLoginDevice is not defined!`);
-                            }
-                        }, 3000);
                     } else {
                         console.log(`[Browser] [Worker Error] window.connect is not defined!`);
                     }

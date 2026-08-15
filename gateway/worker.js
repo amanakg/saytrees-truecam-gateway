@@ -281,14 +281,7 @@ class AccountPage {
       });
 
       // Block unnecessary resources to save RAM
-      await page.route('**/*', (route) => {
-        const type = route.request().resourceType();
-        if (['image', 'font', 'stylesheet'].includes(type)) {
-          route.abort();
-        } else {
-          route.continue();
-        }
-      });
+      // Intentionally NOT blocking CSS/images because Jessibuca and the SDK might rely on them for DOM metrics
       await page.goto('http://localhost:8000/', { waitUntil: 'domcontentloaded' });
 
       console.log(`[AccountPage:${this.accountEmail}][${deviceId}] Running login sequence...`);
@@ -1229,11 +1222,6 @@ async function boot() {
       // Extreme Memory Optimization Flags
       '--disable-features=OptimizationGuideModelDownloading,OptimizationHints,OnDeviceModel,OnDeviceTranslation,OptimizationGuideOnDeviceModel',
       '--disable-component-update',
-      '--disable-software-rasterizer',
-      '--disable-webgl',
-      '--disable-3d-apis',
-      '--disable-accelerated-2d-canvas',
-      '--disable-gpu-compositing',
       '--disable-domain-reliability',
       '--disable-print-preview',
       '--disable-reading-from-canvas',

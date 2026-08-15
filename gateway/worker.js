@@ -284,8 +284,43 @@ class AccountPage {
         }
       });
 
-      // Block unnecessary resources to save RAM
-      // Intentionally NOT blocking CSS/images because Jessibuca and the SDK might rely on them for DOM metrics
+      // Inject CORP headers to all localhost responses to prevent ERR_FAILED under COEP
+      await page.route('http://localhost:8000/**', async route => {
+        const response = await route.fetch();
+        const headers = response.headers();
+        headers['Cross-Origin-Resource-Policy'] = 'cross-origin';
+        await route.fulfill({ response, headers });
+      });
+
+      // Install Canvas mocks before page load to prevent Jessibuca from crashing on getImageData
+      await page.evaluateOnNewDocument(() => {
+        CanvasRenderingContext2D.prototype.drawImage = function () { };
+        CanvasRenderingContext2D.prototype.putImageData = function () { };
+        CanvasRenderingContext2D.prototype.getImageData = function () { 
+          return { data: new Uint8ClampedArray(4), width: 1, height: 1 }; 
+        };
+        CanvasRenderingContext2D.prototype.createImageData = function () { 
+          return { data: new Uint8ClampedArray(4), width: 1, height: 1 }; 
+        };
+        window.requestAnimationFrame = (cb) => { setTimeout(cb, 16); return 0; };
+        
+        const originalGetContext = HTMLCanvasElement.prototype.getContext;
+        HTMLCanvasElement.prototype.getContext = function (type, ...args) {
+          if (type === '2d') {
+            return {
+              drawImage() { },
+              putImageData() { },
+              getImageData() { return { data: new Uint8ClampedArray(4), width: 1, height: 1 }; },
+              createImageData() { return { data: new Uint8ClampedArray(4), width: 1, height: 1 }; },
+              clearRect() { },
+              fillRect() { },
+              canvas: this
+            };
+          }
+          return originalGetContext.call(this, type, ...args);
+        };
+      });
+
       await page.goto('http://localhost:8000/', { waitUntil: 'domcontentloaded' });
 
       console.log(`[AccountPage:${this.accountEmail}][${deviceId}] Running login sequence...`);
@@ -356,22 +391,7 @@ class AccountPage {
           }
         }
 
-        // Override rendering APIs to prevent the SDK from allocating canvas buffers
-        // This saves 20-80MB per page since we don't need to display video visually.
-        CanvasRenderingContext2D.prototype.drawImage = function () { };
-        CanvasRenderingContext2D.prototype.putImageData = function () { };
-        CanvasRenderingContext2D.prototype.createImageData = function () { return { data: { set: function () { } } }; };
-        window.requestAnimationFrame = () => { };
-        HTMLCanvasElement.prototype.getContext = function () {
-          return {
-            drawImage() { },
-            putImageData() { },
-            createImageData() { return { data: { set: function () { } } }; },
-            clearRect() { },
-            fillRect() { }
-          };
-        };
-
+        // Canvas rendering APIs are now mocked in evaluateOnNewDocument
         // Install Global Multiplexed Interceptor
         window.__wsConnections = window.__wsConnections || {};
 
